@@ -2,6 +2,8 @@
 import numpy as np
 import ufl
 
+from spx.dg import tangential
+
 
 def stokes_mms(mesh, muS):
     """Smooth exact Stokes solution (divergence-free u, pressure p) and everything derived
@@ -38,3 +40,19 @@ def biot_mms(mesh, c):
     return {"d": d, "p": p, "sig_tot": sig_tot, "darcy_flux": kappa * ufl.grad(p),
             "f": -ufl.div(sig_tot),                                     # (B1), steady
             "g": -ufl.div(kappa * ufl.grad(p)) + c.beta * p}            # (B2), steady
+
+
+def interface_residuals(exS, exP, c, nS, dt_d):
+    """How much the exact fields violate (I1)-(I4) on Sigma. Stokes fields are taken
+    from the '+' side, poro fields from the '-' side; nS = n('+')."""
+    S = lambda e: e("+")
+    P = lambda e: e("-")
+    nP = -nS
+    B = c.gammaBJS * c.muS / ufl.sqrt(c.K)
+    traction_S = S(exS["sigma"]) * nS                       # sigma_S n_S
+    return {
+        "r_n": -ufl.inner(traction_S, nS) - P(exP["p"]),                            # (I2)
+        "r_tau": tangential(-traction_S - B * (S(exS["u"]) - P(dt_d)), nS),           # (I3)
+        "r_b": traction_S + P(exP["sig_tot"]) * nP,                                   # (I4)
+        "r_m": ufl.inner(S(exS["u"]), nS) + ufl.inner(P(dt_d) - P(exP["darcy_flux"]), nP),  # (I1)
+    }
