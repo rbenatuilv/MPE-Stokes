@@ -14,7 +14,7 @@ def b_P(pp, vv, ctx):
     return form
 
 
-def add_biot(blocks, d, p, v, q, ctx, data):
+def add_biot(blocks, d, p, v, q, ctx, data, ts=None):
     """Add the Biot blocks (d-d, d-pP, pP-pP) and right-hand sides to `blocks`.
     data: f, g (sources), d / p (Dirichlet values on dirP / dirE),
     traction (total traction on neuP), flux (Darcy flux on neuE)."""
@@ -67,3 +67,18 @@ def add_biot(blocks, d, p, v, q, ctx, data):
     blocks.add_a("pP", "pP", a_pp)
     blocks.add_L("d", L_d)
     blocks.add_L("pP", L_p)
+
+    if ts is not None:
+        # rho_P * a^{n+1}, with a^{n+1} written through d^{n+1} (B1, T1)
+        F = c.rhoP * ufl.inner(ts.a_new(d), v) * dx
+        blocks.add_a("d", "d", ufl.lhs(F))
+        blocks.add_L("d", ufl.rhs(F))
+        # c0 (p - p_old) / dt  (B2)
+        blocks.add_a("pP", "pP", c.c0 / ts.dt * p * q * dx)
+        blocks.add_L("pP", c.c0 / ts.dt * ts.pP_old * q * dx)
+        # alpha div(d_t d) q = -alpha b_P(q, z^{n+1})  (B2, D4, T2)
+        F = -c.alpha * b_P(q, ts.z_new(d), ctx)
+        blocks.add_a("pP", "d", ufl.lhs(F))
+        blocks.add_L("pP", ufl.rhs(F))
+        if dDd is not None:                  # data for the dirP term inside b_P
+            blocks.add_L("pP", -c.alpha * q * ufl.inner(data["d_t"], n) * dDd)

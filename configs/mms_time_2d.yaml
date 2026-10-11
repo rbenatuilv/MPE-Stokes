@@ -1,0 +1,23 @@
+mesh:
+  kind: box
+  dim: 2
+  refinements: [4, 8, 16, 32]
+  cells: {stokes: 2, poroel: 1}
+  facets: {dirS: [11], neuS: [10], dirP: [13], neuP: [12], dirE: [12], neuE: [13]}
+material: {
+  rhoS: 1.0, 
+  muS: 1.0, 
+  rhoP: 1.0, 
+  lambdaP: 1.0, 
+  muP: 1.0, 
+  alpha: 1.0,
+  c0: 1.0, 
+  muF: 1.0, 
+  K: 1.0, 
+  beta: 0.0, 
+  gammaBJS: 1.0
+}
+time: {t0: 0.0, T: 0.1, dt: 0.0125, newmark_beta: 0.25, newmark_gamma: 0.5}
+discretization: {deg: 1, degP: 1, gammaV: 10.0, gammaP: 10.0, eta: 10.0, zeta: 10.0}
+solver: {kind: direct}
+output: {dir: results/mms_time_2d}

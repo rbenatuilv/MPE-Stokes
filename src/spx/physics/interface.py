@@ -4,7 +4,7 @@ import ufl
 from spx.dg import tangential
 
 
-def add_interface(blocks, uS, d, pP, vS, vP, qP, ctx, residuals=None):
+def add_interface(blocks, uS, d, pP, vS, vP, qP, ctx, residuals=None, ts=None):
     """Add the coupling terms on Sigma (normal stress, BJS, mass) to `blocks`.
     residuals: only for manufactured solutions, from interface_residuals()."""
     m, c = ctx.m, ctx.c
@@ -31,3 +31,11 @@ def add_interface(blocks, uS, d, pP, vS, vP, qP, ctx, residuals=None):
                            + ufl.inner(r["r_tau"], tP(vP))
                            + ufl.inner(r["r_b"], vP("-"))) * dG)
         blocks.add_L("pP", -r["r_m"] * qP("-") * dG)
+
+    if ts is not None:                       # d_t d -> z^{n+1}(d)  (I1, I3, T2)
+        z = ts.z_new(d)
+        for row, F in (("uS", -B * ufl.inner(tP(z), tS(vS)) * dG),          # BJS, Stokes row
+                       ("d",   B * ufl.inner(tP(z), tP(vP)) * dG),          # BJS, Biot row
+                       ("pP", -qP("-") * ufl.inner(z("-"), nP) * dG)):      # mass
+            blocks.add_a(row, "d", ufl.lhs(F))
+            blocks.add_L(row, ufl.rhs(F))

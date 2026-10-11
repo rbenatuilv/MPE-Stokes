@@ -4,7 +4,7 @@ import ufl
 from spx.dg import h_facet, h_min, sym_bnd, sym_jump
 
 
-def add_stokes(blocks, u, p, v, q, ctx, data):
+def add_stokes(blocks, u, p, v, q, ctx, data, ts=None):
     """Add the Stokes blocks (uS-uS, uS-pS, pS-uS, pS-pS) and right-hand sides to `blocks`.
     data: f (source), u (Dirichlet value on dirS), traction (on neuS)."""
     m, n, k, kp, c = ctx.m, ctx.n, ctx.k, ctx.kp, ctx.c
@@ -46,3 +46,7 @@ def add_stokes(blocks, u, p, v, q, ctx, data):
     blocks.add_a("pS", "pS",                # pressure-jump stabilization (D5)
                  c.gammaP * hS / kp * ufl.inner(ufl.jump(p, n), ufl.jump(q, n)) * dI)
     blocks.add_L("uS", L_u)
+
+    if ts is not None:                       # backward Euler: rho_S (u - u_old) / dt   (S1)
+        blocks.add_a("uS", "uS", c.rhoS / ts.dt * ufl.inner(u, v) * dx)
+        blocks.add_L("uS", c.rhoS / ts.dt * ufl.inner(ts.uS_old, v) * dx)
