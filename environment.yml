@@ -1,0 +1,22 @@
+name: spx
+channels:
+  - conda-forge
+  - nodefaults            # never mix in the anaconda defaults channel
+dependencies:
+  - python=3.12
+  - fenics-dolfinx=0.11.0
+  - petsc=*=real*         # real (not complex) PETSc build
+  - mpich                 # one MPI implementation, chosen explicitly
+  - cxx-compiler          # conda's C++ toolchain, for building multiphenicsx
+  - cmake                 # build tools used by multiphenicsx's C++ part
+  - ninja
+  - nanobind
+  - scikit-build-core
+  - setuptools            # build backend for your own package (Step 1)
+  - python-gmsh           # mesh generation / import
+  - pyyaml                # config files
+  - numpy
+  - pandas                # convergence tables
+  - matplotlib
+  - pytest
+  - pip                   # multiphenicsx is built by hand, see 0.3

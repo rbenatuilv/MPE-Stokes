@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spx"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = []          # deliberately empty: conda provides dolfinx/multiphenicsx
+
+[project.scripts]
+spx-run = "spx.run:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["slow: convergence studies on several meshes"]
