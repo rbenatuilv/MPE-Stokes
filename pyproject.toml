@@ -3,16 +3,14 @@ requires = ["setuptools>=69"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "spx"
+name = "biotx"
 version = "0.1.0"
+description = "Two- and three-field Biot experiments in DG FEniCSx, driven by YAML files"
 requires-python = ">=3.11"
-dependencies = []          # deliberately empty: conda provides dolfinx/multiphenicsx
+dependencies = []          # deliberately empty: conda provides dolfinx, gmsh, pyyaml
 
-[project.scripts]
-spx-run = "spx.run:main"
-
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.setuptools]
+packages = ["biotx"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
