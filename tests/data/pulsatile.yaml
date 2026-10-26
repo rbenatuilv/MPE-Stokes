@@ -1,0 +1,58 @@
+# Test fixture (not an experiment): the brain-like pulsatile case on which
+# tests/test_regression_spx.py compares biotx with the frozen spx results, and whose
+# scaled coefficients tests/test_config.py checks. Do not change it.
+#
+# Idealised brain slice: disc of radius 1 cm minus an off-centre ventricle. CSF pressure
+# p_V(t) on the ventricle wall acts on the pore fluid and on the solid; the pial surface is
+# drained and fixed. Everything is in SI.
+
+model: biot2
+
+scales: {L0: 1.0e-2, T0: 1.0, P0: 1500.0}          # m, s, Pa
+
+material:                                           # Morasca (2025), Table 3
+  mu: 1500.0          # Pa
+  lambda: 11567.0     # Pa
+  alpha: 0.49
+  c0: 1.0e-6          # 1/Pa
+  K: 1.57e-11         # m^2
+  muF: 3.5e-3         # Pa s
+  rho: 1000.0         # kg/m^3
+  rho_f: 1000.0       # kg/m^3 (three-field only)
+  phi: 0.2            #        (three-field only)
+  tortuosity: 1.6     #        (three-field only)
+
+geometry:
+  shape: annulus
+  center: [0.0, 0.0]
+  radius: 1.0e-2
+  inner: {center: [3.0e-3, 0.0], radius: 2.5e-3}
+  h: 5.0e-4
+  names: {inner: ventricle, outer: pia}
+
+params:
+  A: 133.3            # Pa = 1 mmHg (the problem is linear in A)
+
+loads:
+  pV: "A * (1 - cos(2*pi*t)) / 2"                   # one cardiac cycle per second, from rest
+
+boundaries:
+  ventricle: {pressure: pV, normal_traction: -pV}   # CSF pushes on fluid and solid
+  pia:       {pressure: 0, displacement: [0, 0]}    # drained, fixed
+
+discretization: {deg: 2, eta: 10.0, zeta: 10.0}     # deg_p: deg (biot2), deg - 1 (biot3)
+
+time: {T: 3.0, dt: 0.01, theta: 0.5}                # theta: Crank-Nicolson (biot2 only)
+
+output:
+  dir: results
+  series: [flux, p]                                 # at the probes, every step
+  probes:
+    thick: [-5.0e-3, 0.0]
+    top:   [0.0, 6.0e-3]
+    thin:  [8.0e-3, 0.0]
+  lines:                                            # along y = 0, pia -> ventricle
+    thick: {from: [-9.99e-3, 0.0], to: [0.48e-3, 0.0], n: 201}
+    thin:  {from: [5.51e-3, 0.0], to: [9.99e-3, 0.0], n: 201}
+  grid: 81
+  snapshots: [2.25, 2.5, 2.75, 3.0]                 # phases of the third cycle

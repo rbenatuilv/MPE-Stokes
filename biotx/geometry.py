@@ -175,3 +175,65 @@ def build(g: dict, L0: float = 1.0, root=".") -> Domain:
     tdim = mesh.topology.dim
     mesh.topology.create_connectivity(tdim - 1, tdim)
     return Domain(mesh, tags, names)
+
+
+def refine(domain: Domain) -> Domain:
+    """Uniform refinement (every cell split into 2^dim), with the boundary names kept. The
+    new mesh is nested in the old one: each coarse DG function is exactly a fine one. Curved
+    boundaries are not moved: every level discretizes the same polygon / polyhedron."""
+    mesh, tags = domain.mesh, domain.facet_tags
+    tdim, fdim = mesh.topology.dim, mesh.topology.dim - 1
+    mesh.topology.create_entities(1)
+    fine, parent, _ = dolfinx.mesh.refine(mesh, option=dolfinx.mesh.RefinementOption.parent_cell)
+    # dolfinx cannot transfer facet tags on ghosted meshes, so retag: a boundary facet of a
+    # fine cell lies on exactly one tagged boundary facet of its parent cell
+    fine.topology.create_connectivity(fdim, tdim)
+    mesh.topology.create_connectivity(tdim, fdim)
+    tag_of = dict(zip(tags.indices.tolist(), tags.values.tolist()))
+    c2f, f2c = mesh.topology.connectivity(tdim, fdim), fine.topology.connectivity(fdim, tdim)
+    nloc = fine.topology.index_map(tdim).size_local
+    # parent is indexed by the cells as created, before dolfinx reorders them
+    order = np.asarray(fine.topology.original_cell_index, dtype=np.int64)
+    start = fine.topology.index_map(tdim).local_range[0]
+    ext = dolfinx.mesh.exterior_facet_indices(fine.topology)
+    mid = dolfinx.mesh.compute_midpoints(fine, fdim, ext)
+    coarse_nodes = mesh.geometry.x
+    facets, values = [], []
+    for f, x in zip(ext, mid):
+        c = f2c.links(f)[0]
+        if c >= nloc:                                # ghost cell: tagged by its owner
+            continue
+        best, dist = None, np.inf
+        for cf in c2f.links(parent[order[c] - start]):
+            if cf not in tag_of:
+                continue
+            X = coarse_nodes[dolfinx.mesh.entities_to_geometry(mesh, fdim, np.array([cf], dtype=np.int32))[0]]
+            dd = _distance_to_plane(x, X, tdim)
+            if dd < dist:
+                best, dist = cf, dd
+        if best is not None:
+            facets.append(f)
+            values.append(tag_of[best])
+    order = np.argsort(facets)
+    new_tags = dolfinx.mesh.meshtags(fine, fdim, np.asarray(facets, dtype=np.int32)[order],
+                                     np.asarray(values, dtype=np.int32)[order])
+    return Domain(fine, new_tags, dict(domain.names))
+
+
+def _distance_to_plane(x, X, tdim):
+    """Distance from point x to the line (2D) or plane (3D) through the facet vertices X."""
+    a = X[0]
+    if tdim == 2:
+        t = X[1] - a
+        return abs(t[0] * (x[1] - a[1]) - t[1] * (x[0] - a[0])) / np.linalg.norm(t)
+    nrm = np.cross(X[1] - a, X[2] - a)
+    return abs(np.dot(x - a, nrm)) / np.linalg.norm(nrm)
+
+
+def cell_size(mesh) -> float:
+    """Largest cell diameter (in the mesh's own units), over all ranks."""
+    nloc = mesh.topology.index_map(mesh.topology.dim).size_local
+    X = mesh.geometry.x[mesh.geometry.dofmaps[0][:nloc]]
+    h = max((np.linalg.norm(X[:, i] - X[:, j], axis=1).max(initial=0.0)
+             for i in range(X.shape[1]) for j in range(i)), default=0.0)
+    return mesh.comm.allreduce(h, op=MPI.MAX)

@@ -37,10 +37,15 @@ class ThreeField(BiotModel):
     fields = ("d", "w", "p")
 
     def __init__(self, exp, domain=None):
-        bad = [n for n, bc in exp.boundaries.items() if "flux" in bc and not _is_zero(bc["flux"])]
+        bad = [n for n, bc in exp.boundaries.items()
+               if "flux" in bc and not (_is_zero(bc["flux"]) or bc["flux"] == "exact")]
         if bad:
             raise NotImplementedError(f"biot3: only flux: 0 is supported (boundaries {bad})")
         super().__init__(exp, domain)
+        ds = self.bc.measure("flux")
+        if self.mms is not None and ds is not None:           # flux: exact must mean w.n = 0
+            self.mms.require_zero(ufl.inner(self.mms.exact("w"), self.m.n), ds,
+                                  "w.n on the flux boundaries (biot3 supports only flux: 0)")
 
     def _elements(self):
         d = self.exp.discretization
@@ -113,6 +118,21 @@ class ThreeField(BiotModel):
                 if key in v:
                     self.interpolate(func, f[kind] * v[key])
             self.u[name].x.array[:] = s.u_old.x.array
+
+    def strong_form(self, F, C):
+        """Sources of (B3)-(B5) for which the fields F (SI UFL) are an exact solution."""
+        m = self.exp.material
+        d, w, p = F["d"], F["w"], F["p"]
+        rhoW = m.rho_f * m.tortuosity / m.phi
+        f_d = (m.rho * C.dt(d, 2) + m.rho_f * C.dt(w, 2)
+               - C.div(C.sigma_e(d) - m.alpha * p * ufl.Identity(len(d))))
+        f_w = m.rho_f * C.dt(d, 2) + rhoW * C.dt(w, 2) + m.muF / m.K * C.dt(w) + C.grad(p)
+        f_p = m.c0 * p + m.alpha * C.div(d) + C.div(w)
+        return {"body_force": f_d, "fluid_force": f_w, "mass_source": f_p}
+
+    def exact_flux(self, F, C):
+        """q = w_t of the fields F (SI)."""
+        return C.dt(F["w"])
 
     def flux(self):
         """Darcy flux q = w_t (non-dimensional): the Newmark velocity of w."""

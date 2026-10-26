@@ -23,6 +23,7 @@ from petsc4py import PETSc
 
 from biotx import geometry
 from biotx.expressions import Expressions
+from biotx.mms import Manufactured
 
 MUMPS = {"ksp_type": "preonly", "pc_type": "lu", "pc_factor_mat_solver_type": "mumps",
          "mat_mumps_icntl_14": 80}             # extra MUMPS workspace
@@ -128,7 +129,8 @@ class BoundaryConditions:
         pressure:     [(ds, p*)]           flux:     [(ds, outward Darcy flux q.n *)]
     normal_traction s is the traction s n (a fluid pressure P on a wall: s = -P)."""
 
-    def __init__(self, exp, domain, ex, m):
+    def __init__(self, exp, domain, ex, m, exact=None):
+        """exact: the model's Manufactured solution, for conditions given as `exact`."""
         f = exp.scales.factor
         known, given = set(domain.names), set(exp.boundaries)
         if given - known:
@@ -138,6 +140,11 @@ class BoundaryConditions:
         self.tags = {k: [] for k in ("displacement", "traction", "pressure", "flux")}
         self.displacement, self.traction, self.pressure, self.flux = [], [], [], []
         dim = domain.mesh.geometry.dim
+
+        def value(bc, key):
+            v = bc[key]
+            return exact.boundary(key, m.n) if isinstance(v, str) and v == "exact" else ex(v)
+
         for name, bc in exp.boundaries.items():
             for key in ("displacement", "traction"):
                 v = bc.get(key)
@@ -146,18 +153,18 @@ class BoundaryConditions:
             tag = domain.names[name]
             ds = m.ds(tag)
             if "displacement" in bc:
-                g = ex(bc["displacement"])
+                g = value(bc, "displacement")
                 self.displacement.append((ds, f["displacement"] * g, f["velocity"] * ex.ddt(g)))
                 self.tags["displacement"].append(tag)
             else:
-                tr = ex(bc["traction"]) if "traction" in bc else ex(bc["normal_traction"]) * m.n
+                tr = value(bc, "traction") if "traction" in bc else ex(bc["normal_traction"]) * m.n
                 self.traction.append((ds, f["pressure"] * tr))
                 self.tags["traction"].append(tag)
             if "pressure" in bc:
-                self.pressure.append((ds, f["pressure"] * ex(bc["pressure"])))
+                self.pressure.append((ds, f["pressure"] * value(bc, "pressure")))
                 self.tags["pressure"].append(tag)
             else:
-                self.flux.append((ds, f["velocity"] * ex(bc["flux"])))
+                self.flux.append((ds, f["velocity"] * value(bc, "flux")))
                 self.tags["flux"].append(tag)
         self._ds = m.ds
 
@@ -251,7 +258,8 @@ class BiotModel:
 
         # data: loads, boundary conditions and sources, all non-dimensional UFL
         self.ex = Expressions(mesh, s, self.t, exp.params, exp.loads)
-        self.bc = BoundaryConditions(exp, self.domain, self.ex, self.m)
+        self.mms = Manufactured(self) if exp.exact else None        # sources, BC data, initial state
+        self.bc = BoundaryConditions(exp, self.domain, self.ex, self.m, self.mms)
         self.nm = Newmark(tc.newmark_beta, tc.newmark_gamma, self.dt)
 
         # mixed DG space, one collapsed space and Function per field
@@ -268,6 +276,8 @@ class BiotModel:
         F = self._residual(dict(zip(self.fields, ufl.TrialFunctions(self.W))),
                            dict(zip(self.fields, ufl.TestFunctions(self.W))))
         self.solver = LinearSolver(ufl.lhs(F), ufl.rhs(F), self.W, exp.solver)
+        if self.mms is not None:
+            self.set_initial(**self.mms.initial())
 
     # -- to be provided by the models
     def _elements(self): raise NotImplementedError
@@ -276,6 +286,8 @@ class BiotModel:
     def _advance(self) -> bool: raise NotImplementedError
     def _set_initial(self, values): raise NotImplementedError
     def flux(self): raise NotImplementedError
+    def strong_form(self, fields, C): raise NotImplementedError    # sources for given fields (mms.py)
+    def exact_flux(self, fields, C): raise NotImplementedError
 
     # -- helpers for the models
     def element(self, deg, vector=False):
@@ -285,6 +297,8 @@ class BiotModel:
 
     def source(self, name, kind, shape=()):
         """A `sources` entry, non-dimensional (zero if absent)."""
+        if self.mms is not None:                                   # derived from `exact`
+            return self.exp.scales.factor[kind] * self.mms.sources[name]
         value = self.exp.sources.get(name, np.zeros(shape).tolist() if shape else 0.0)
         return self.exp.scales.factor[kind] * self.ex(value)
 

@@ -33,6 +33,7 @@ import ufl
 from mpi4py import MPI
 
 from biotx.fields import Fields
+from biotx.geometry import cell_size
 from biotx.post import load_results
 
 
@@ -40,14 +41,6 @@ def fields_path(path):
     """<name>.npz -> <name>_fields.npz (a _fields.npz is returned as it is)."""
     p = Path(path)
     return p if p.stem.endswith("_fields") else p.with_name(f"{p.stem}_fields.npz")
-
-
-def _cell_size(mesh):
-    nloc = mesh.topology.index_map(mesh.topology.dim).size_local
-    X = mesh.geometry.x[mesh.geometry.dofmaps[0][:nloc]]
-    h = max((np.linalg.norm(X[:, i] - X[:, j], axis=1).max(initial=0.0)
-             for i in range(X.shape[1]) for j in range(i)), default=0.0)
-    return mesh.comm.allreduce(h, op=MPI.MAX)
 
 
 class FieldDifference:
@@ -65,7 +58,7 @@ class FieldDifference:
         self.a, self.r = dolfinx.fem.Function(Vt), dolfinx.fem.Function(Vt)
         nloc = ref.mesh.topology.index_map(ref.mesh.topology.dim).size_local
         self.cells = np.arange(nloc, dtype=np.int32)
-        self.data = dolfinx.fem.create_interpolation_data(Vt, Va, self.cells, padding=_cell_size(run.mesh))
+        self.data = dolfinx.fem.create_interpolation_data(Vt, Va, self.cells, padding=cell_size(run.mesh))
         dx = ufl.dx(ref.mesh)
         self.num = dolfinx.fem.form(ufl.inner(self.a - self.r, self.a - self.r) * dx)
         self.den = dolfinx.fem.form(ufl.inner(self.r, self.r) * dx)

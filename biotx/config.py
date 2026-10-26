@@ -9,7 +9,7 @@ The conversion is done once, in `Scales` and `Material.scaled`; the models never
 values. Scales of 1 (the default) mean "solve with the numbers as given".
 
 Overrides (parameter sweeps) use dotted keys on the raw YAML tree:
-    load("pulsatile.yaml", {"time.dt": 0.005, "params.A": 266.6, "model": "biot3"})
+    load("annulus_biot2.yaml", {"time.dt": 0.005, "params.A": 266.6, "geometry.h": 2.5e-4})
 """
 import copy
 from dataclasses import dataclass, field
@@ -24,6 +24,7 @@ from biotx.expressions import FUNCTIONS, VARIABLES
 MODELS = ("biot2", "biot3")
 SOURCES = {"biot2": ("body_force", "fluid_source"),                    # what each model reads
            "biot3": ("body_force", "fluid_force", "mass_source")}
+FIELDS = {"biot2": ("d", "p"), "biot3": ("d", "w", "p")}               # unknowns (for `exact`)
 MECHANICAL = ("displacement", "traction", "normal_traction")   # one per boundary
 HYDRAULIC = ("pressure", "flux")                               # one per boundary
 
@@ -148,6 +149,8 @@ class Experiment:
     sources: dict = field(default_factory=dict)
     output: Output = Output()
     solver: dict = field(default_factory=dict)    # extra PETSc options (default: MUMPS LU)
+    exact: dict = field(default_factory=dict)     # manufactured solution (see mms.py)
+    convergence: dict = field(default_factory=dict)   # study description (see convergence.py)
     raw: dict = field(default_factory=dict, repr=False, compare=False)
     root: Path = Path(".")                         # directory of the YAML file
 
@@ -195,6 +198,26 @@ def _check_names(model, params, loads, sources):
         raise ValueError(f"{sorted(both)} defined in both params and loads")
 
 
+def _check_exact(model, exact, sources, boundaries):
+    """A manufactured solution gives every unknown and replaces the sources; `exact` as a
+    boundary value needs one, and cannot be a normal traction (the exact traction has a
+    tangential part in general)."""
+    if exact:
+        missing, extra = set(FIELDS[model]) - set(exact), set(exact) - set(FIELDS[model])
+        if missing or extra:
+            raise ValueError(f"exact: {model} needs exactly {list(FIELDS[model])}; "
+                             f"missing {sorted(missing)}, unknown {sorted(extra)}")
+        if sources:
+            raise ValueError("sources: not allowed with `exact` (they are derived from it)")
+    for name, bc in boundaries.items():
+        for key, value in bc.items():
+            if isinstance(value, str) and value == "exact":
+                if not exact:
+                    raise ValueError(f"boundary '{name}': {key}: exact needs an `exact` section")
+                if key == "normal_traction":
+                    raise ValueError(f"boundary '{name}': normal_traction cannot be exact; use traction: exact")
+
+
 def from_dict(raw: dict, name: str = "experiment", root=".") -> Experiment:
     """Build an Experiment from a raw YAML tree (unknown keys raise TypeError)."""
     model = raw.get("model", "biot2")
@@ -204,6 +227,7 @@ def from_dict(raw: dict, name: str = "experiment", root=".") -> Experiment:
     _check_boundaries(boundaries)
     geometry.check(raw["geometry"])
     _check_names(model, raw.get("params", {}), raw.get("loads", {}), raw.get("sources", {}))
+    _check_exact(model, raw.get("exact", {}), raw.get("sources", {}), boundaries)
     out = raw.get("output", {})
     return Experiment(
         name=out.get("name") or name, model=model,
@@ -214,7 +238,8 @@ def from_dict(raw: dict, name: str = "experiment", root=".") -> Experiment:
         discretization=Discretization(**raw.get("discretization", {})),
         params=raw.get("params", {}), loads=raw.get("loads", {}),
         sources=raw.get("sources", {}), output=Output(**out),
-        solver=raw.get("solver", {}), raw=copy.deepcopy(raw), root=Path(root))
+        solver=raw.get("solver", {}), exact=raw.get("exact", {}),
+        convergence=raw.get("convergence", {}), raw=copy.deepcopy(raw), root=Path(root))
 
 
 def load(path, overrides: dict | None = None) -> Experiment:

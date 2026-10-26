@@ -124,6 +124,20 @@ class TwoField(BiotModel):
         self.u["p"].x.array[:] = self.p_old.x.array
         self._q_step = None
 
+    def strong_form(self, F, C):
+        """Sources of (B1)-(B2) for which the fields F (SI UFL) are an exact solution; C
+        holds the SI calculus (mms.Manufactured)."""
+        m = self.exp.material
+        d, p = F["d"], F["p"]
+        f = m.rho * C.dt(d, 2) - C.div(C.sigma_e(d) - m.alpha * p * ufl.Identity(len(d)))
+        g = (m.c0 * C.dt(p) + m.alpha * C.div(C.dt(d)) - C.div(m.K / m.muF * C.grad(p))
+             + m.beta * p)
+        return {"body_force": f, "fluid_source": g}
+
+    def exact_flux(self, F, C):
+        """q = -kappa grad p of the fields F (SI)."""
+        return -self.exp.material.K / self.exp.material.muF * C.grad(F["p"])
+
     def flux(self):
         """Darcy flux q = -kappa grad p_h (non-dimensional), DG_{deg_p - 1}."""
         if self._q_step != self.step:
