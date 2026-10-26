@@ -391,6 +391,31 @@ Measured orders in time. The exact fields are linear in $x$, so the discrete spa
 
 ---
 
-## 10. Notes from the original implementation
+## 10. Conditioning of the step matrix
+
+Each step solves $A x = b$ with the same matrix $A$ (Section 7.6). Its 2-norm condition number
+
+$$
+\mathrm{cond}_2(A) = \frac{\sigma_{\max}(A)}{\sigma_{\min}(A)}
+$$
+
+bounds how much relative perturbations of $b$ (round-off, data) can grow in $x$. It also governs the convergence of Krylov solvers, which is what matters once the direct LU no longer fits (large 3D meshes). It is computed by `biotx/conditioning.py`.
+
+- **Singular values, not eigenvalues.** $A$ is not symmetric: the coupling blocks are antisymmetric. Its eigenvalues therefore say nothing about $\mathrm{cond}_2$, and both ends of the singular spectrum are computed with SLEPc:
+  - $\sigma_{\max}$: the SLEPc SVD solver (Lanczos);
+  - $\sigma_{\min} = \lambda_{\max}\big((A^TA)^{-1}\big)^{-1/2}$: the largest eigenvalue of the symmetric operator $A^{-1}A^{-T}$. Each Lanczos iteration needs one solve with $A^T$ and one with $A$, both from the same MUMPS factorisation.
+
+  On small systems both values agree with a dense SVD to the solver tolerance (`tests/test_conditioning.py`).
+- **Which matrix.** The one of a regular step. In the two-field model with a Rannacher start, that is the matrix with the requested $\theta$.
+- **Raw and Jacobi-scaled.** $\mathrm{cond}_2$ depends on the units of each block: the two models have different unknowns, and the brain coefficients differ by orders of magnitude ($\kappa^* \approx 7\cdot10^{-5}$, $c_0^* = 1.5\cdot10^{-3}$). Besides the raw $A$, the study therefore reports $\tilde A = |D|^{-1/2} A\, |D|^{-1/2}$ with $D = \mathrm{diag}(A)$. That symmetric diagonal scaling removes most of the effect of units. What remains reflects the structure of the problem: mesh, time step, coupling.
+- **Expected growth in $h$.** For SIPG forms, $\mathrm{cond}_2 \sim h^{-2}$. On unstructured meshes the growth is measured against the effective size $h_{\mathrm{eff}} = (|\Omega|/N_{\mathrm{cells}})^{1/d}$, which follows the refinement better than the largest cell diameter.
+- **Schur-scaled.** In the three-field model the pressure diagonal is only $c_0 M_p$, and the pressure is controlled mainly through its coupling to $w$, a saddle-point structure. Eliminating $w$ gives the Schur complement $S = C + B A_{ww}^{-1} B^T \approx c_0 M_p + \kappa\Delta t\,(-\Delta_h)$ (up to the Newmark factor $\beta/\gamma$). Jacobi scaling uses $c_0$ alone, so it under-scales $p$: the scaled $w$–$p$ coupling grows like $h^{-1}\sqrt{\kappa\Delta t/c_0}$, and $\mathrm{cond}_2(\tilde A) \sim h^{-3}$. The `schur` scaling divides each pressure unknown instead by $s_{ii} = |a_{ii}| + \sum_{j\notin p} |a_{ij} a_{ji}|/|a_{jj}|$, the diagonal of $S$ with $A_{ww}$ replaced by its diagonal, which bounds the scaled coupling by 1. It is the diagonal analogue of the block preconditioner $\mathrm{diag}(A_{dd}, A_{ww}, S)$, and the fair basis for comparing the two models. In the two-field model it coincides with Jacobi to three digits, because the pressure diagonal already holds the Darcy jump penalty.
+- **Measured** (annulus, brain parameters, P2, $h_{\mathrm{eff}}$ = 0.32 mm, `experiments/conditioning/conditioning.ipynb`): two-field $\sim h^{-2}$ for every scaling, nearly independent of $\Delta t$. Three-field raw 30–100 times larger; Jacobi $\sim h^{-3}$; Schur $\sim h^{-2}$ and 0.17–0.55 times the two-field value.
+- **Which unknowns.** The right singular vector of $\sigma_{\min}$ shows which fields make $A$ nearly singular: the share of its squared norm on the dofs of $d$, $w$ and $p$.
+- **Units and the Darcy penalty.** All the forms are invariant under the non-dimensionalization of Section 5, except the Darcy penalty of the two-field model. Its scale $\tilde\kappa = \max(\kappa, 1)$ is taken in the units of the solve, so solving in SI changes the discrete problem, not only its units. With the brain parameters, $\tilde\kappa = 1$ in both cases, which is about $1.5\cdot10^4$ times the consistent value $\kappa^*$ in the scaled problem and about $2\cdot10^8$ times $\kappa$ in SI.
+
+---
+
+## 11. Notes from the original implementation
 
 The original code (`sp/variational_forms.py`, before spx) used inconsistent boundary sets for the $p$–$d$ coupling. The momentum-row term was integrated on $\Gamma_d$, but the mass-row term and its data were integrated on $\Gamma_p$ (pressure Dirichlet). Both come from the weakly imposed displacement, so both belong on $\Gamma_d$ (D4). The old test case could not detect this, because it had $\Gamma_d = \Gamma_p$.

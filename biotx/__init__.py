@@ -22,7 +22,7 @@ def make_model(exp, domain=None):
     return MODELS[exp.model](exp, domain)
 
 
-from biotx import convergence  # noqa: E402  (after make_model, which it uses)
+from biotx import conditioning, convergence  # noqa: E402  (after make_model, which they use)
 
-__all__ = ["convergence", "Experiment", "load", "make_model", "TwoField", "ThreeField", "Recorder",
+__all__ = ["conditioning", "convergence", "Experiment", "load", "make_model", "TwoField", "ThreeField", "Recorder",
            "Points", "load_results", "build_geometry", "Fields", "load_fields", "compare"]

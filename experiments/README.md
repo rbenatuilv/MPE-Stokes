@@ -147,6 +147,25 @@ python -m biotx.convergence experiments/convergence/mms_biot2_space.yaml
 The manufactured studies give an `exact:` solution. The sources, every boundary condition written as
 `exact`, and the initial state are derived from it symbolically, so nothing is derived by hand.
 
+## Condition numbers
+
+A conditioning study measures cond₂ = σ_max/σ_min of the step matrix for each value of one swept
+key (raw, Jacobi- and Schur-scaled), run with `python -m biotx.conditioning`. Every key is in
+[`YAML_REFERENCE.md`](YAML_REFERENCE.md) §16. `experiments/conditioning/` has six studies, on the
+annulus with the brain parameters:
+
+| file | sweep |
+|---|---|
+| `annulus_biot2_h.yaml`, `annulus_biot3_h.yaml` | mesh size h = 4, 2, 1, 0.5 mm, at dt = 10 ms |
+| `annulus_biot2_h_dt2.5ms.yaml`, `annulus_biot3_h_dt2.5ms.yaml` | the same, at dt = 2.5 ms |
+| `annulus_biot2_dt.yaml`, `annulus_biot3_dt.yaml` | time step dt = 40 ms to 2.5 ms, at h = 0.5 mm |
+
+```bash
+python -m biotx.conditioning experiments/conditioning/annulus_biot2_h.yaml
+```
+
+`conditioning.ipynb` shows them all, in tables and figures, with a reading of the results.
+
 ## When the YAML is not enough: the Python API
 
 ```python
@@ -163,7 +182,7 @@ for t in model.steps():                        # one solved step per iteration
 rec.save()
 ```
 
-- Anywhere the YAML takes a string, Python can take a callable `f(x, t)` returning UFL (x and t in SI). That is how `tests/test_mms.py` imposes the manufactured solutions.
+- Anywhere the YAML takes a string, Python can take a callable `f(x, t)` returning UFL (x and t in SI). The `exact:` section accepts callables too (see `tests/test_convergence.py`).
 - `biotx.Points(model.mesh, pts, L0)` evaluates any Function at points, and works in parallel.
 - To reuse one mesh in several runs, pass `domain=model.domain` to the next model.
 - To change a coefficient mid-run, set `model.c.<name>.value = ...` and then call `model.solver.update_matrix()`. The matrix is factorised only once.

@@ -35,7 +35,6 @@ the meshes are nested), and its order equals the order of the true error.
     print(res.table()); res.rates("p", "L2"); res.save()
 """
 import argparse
-import copy
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -48,7 +47,7 @@ import yaml
 from mpi4py import MPI
 
 from biotx import geometry
-from biotx.config import FIELDS, _override, from_dict
+from biotx.config import FIELDS, _override, from_dict, merge, read_study
 
 STUDIES = ("space", "time", "self")
 NORMS = ("L2", "H1")
@@ -67,13 +66,6 @@ class Study:
 
     def experiment(self, overrides=None):
         return from_dict(_override(self.raw, overrides or {}), self.name, self.root)
-
-
-def _merge(base, top):
-    out = copy.deepcopy(base)
-    for k, v in top.items():
-        out[k] = _merge(out[k], v) if isinstance(v, dict) and isinstance(out.get(k), dict) else v
-    return out
 
 
 def _check(raw):
@@ -119,18 +111,13 @@ def _check(raw):
 def load(path, overrides=None) -> Study:
     """Read a study YAML (with an optional `base:` experiment it extends)."""
     path = Path(path)
-    raw = yaml.safe_load(path.read_text())
-    if "base" in raw:
-        base = yaml.safe_load((path.parent / raw.pop("base")).read_text())
-        base.pop("output", None)                         # probes etc. are not used here
-        raw = _merge(base, raw)
-    raw = _override(raw, overrides or {})
+    raw = _override(read_study(path), overrides or {})
     return Study(raw, raw.get("output", {}).get("name") or path.stem, path.parent, _check(raw))
 
 
 def study(exp, **spec) -> Study:
     """A Study from an Experiment and convergence keys, e.g. study(exp, study="time", dt=[...])."""
-    raw = _merge(exp.raw, {"convergence": spec})
+    raw = merge(exp.raw, {"convergence": spec})
     return Study(raw, exp.name, exp.root, _check(raw))
 
 

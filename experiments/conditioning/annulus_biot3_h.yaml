@@ -1,0 +1,14 @@
+# Condition number of the biot3 step matrix (P2/P2/P1) on the annulus with the brain parameters,
+# against the mesh size. SIPG predicts cond ~ h^-2 for a fixed dt; the slope column measures it.
+# raw: A as assembled (non-dimensional); jacobi: |D|^-1/2 A |D|^-1/2. The s_min share column
+# shows which fields carry the smallest singular vector.
+#
+#   python -m biotx.conditioning experiments/conditioning/annulus_biot3_h.yaml
+#
+# The finest mesh is the one of the experiment (h = 5e-4): it fits the 5 GB machine.
+
+base: ../annulus_biot3.yaml
+
+conditioning:
+  sweep: {geometry.h: [4.0e-3, 2.0e-3, 1.0e-3, 5.0e-4]}
+  scaling: [raw, jacobi, schur]
