@@ -15,9 +15,9 @@ ALL_KINDS = {"left": {"displacement": E, "pressure": E}, "bottom": {"displacemen
              "right": {"traction": E, "flux": E}, "top": {"traction": E, "pressure": E}}
 PRESSURE = {k: {**{m: E for m in v if m in ("displacement", "traction")}, "pressure": E}
             for k, v in ALL_KINDS.items()}              # biot3: only zero flux is supported
-SMOOTH = {"d": ["(1 + sin(t)) * sin(pi*x) * cos(pi*y)", "(1 + sin(t)) * sin(pi*y) * cos(pi*x)"],
-          "w": ["(1 + sin(t)) * (cos(pi*x) * sin(pi*y) + 0.2)", "(1 + sin(t)) * (cos(pi*y) * sin(pi*x) + 0.2)"],
-          "p": "(1 + sin(t)) * (cos(pi*x) * cos(pi*y) + 0.5)"}
+SMOOTH = {"d": ["sin(t)**2 * sin(pi*x) * cos(pi*y)", "sin(t)**2 * sin(pi*y) * cos(pi*x)"],
+          "w": ["sin(t)**2 * (cos(pi*x) * sin(pi*y) + 0.2)", "sin(t)**2 * (cos(pi*y) * sin(pi*x) + 0.2)"],
+          "p": "sin(t)**2 * (cos(pi*x) * cos(pi*y) + 0.5)"}
 LINEAR = {"d": ["exp(t) * (x + 2*y)", "exp(t) * (x - y)"], "w": ["cos(t) * (1 + y)", "cos(t) * (2 - x)"],
           "p": "sin(t) * (1 + x + y)"}                  # in P1 in space: only the time error
 

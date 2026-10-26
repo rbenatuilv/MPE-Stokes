@@ -355,7 +355,7 @@ $$
 - **Coverage:** every boundary condition kind, nonzero Dirichlet data (and its velocity), and a non-rest initial state.
 - **Errors:** the $L^2$ norm and the broken $H^1$ seminorm $\|\nabla_h(u - u_h)\|$, with quadrature of degree $k+4$ (`biotx/convergence.py`).
 
-Measured orders in space. The exact fields are smooth and non-polynomial, Crank–Nicolson with a small $\Delta t$; $L^2$ orders on the finest meshes:
+Measured orders in space. The exact fields are smooth and non-polynomial, with a time factor $\sin^2 t$, so that the fields and $\partial_t$ vanish at $t_0$. Crank–Nicolson with a small $\Delta t$; $L^2$ orders on the finest meshes:
 
 | Model | Elements | $d$ | $w$ | $p$ |
 |---|---|---|---|---|
@@ -363,6 +363,14 @@ Measured orders in space. The exact fields are smooth and non-polynomial, Crank�
 | three-field | P2/P2/P1 | 2.96 | 3.04 | 1.92 |
 
 These are the optimal orders $k+1$ for each field, with $k_p + 1$ for the three-field pressure. The $H^1$ orders are one less.
+
+Why the time factor vanishes at $t_0$:
+
+- **The initial state is only interpolated.** An exact solution that is nonzero at $t_0$ is interpolated into the discrete spaces. That differs from the discrete equilibrium by $O(h^{k+1})$.
+- **Newmark keeps the mismatch.** Newmark with $(\tfrac14, \tfrac12)$ does not damp it, so it keeps oscillating at the mesh frequencies $\sim h^{-1}$.
+- **Effect on $d$:** it stays $O(h^{k+1})$, so no order is lost.
+- **Effect on velocities:** it becomes $O(h^k)$. The three-field flux $\partial_t w$ then converged at about 2.3 instead of 3, and it got *worse* as $\Delta t$ decreased.
+- **With $\sin^2 t$:** the initial state is exactly zero, and every field reaches its optimal order. The flux reaches 2.9–3.0, as expected.
 
 Measured orders in time. The exact fields are linear in $x$, so the discrete spaces contain them and only the time error remains. $\Delta t = 0.1 \to 0.0125$, all fields and both norms:
 
