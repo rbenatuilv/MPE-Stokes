@@ -6,7 +6,7 @@ import pytest
 import biotx
 from biotx.config import from_dict
 
-PULSATILE = Path(__file__).resolve().parents[1] / "experiments" / "pulsatile.yaml"
+PULSATILE = Path(__file__).parent / "data" / "pulsatile.yaml"
 
 
 def test_scaling_of_the_brain_parameters():

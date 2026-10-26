@@ -9,7 +9,7 @@ of every cell at every snapshot (in SI). A DG field is cell-local, so this is th
 Function, not a sampling of it. Unlike the ParaView files, it can be read back as dolfinx
 Functions on any number of ranks:
 
-    fl = load_fields("results/pulsatile_fields.npz")
+    fl = load_fields("results/annulus_biot2_fields.npz")
     p = fl.function("p", 0)     # Function on fl.mesh (SI coordinates) at fl.snap_t[0], in Pa
 
 The cells are written in their original (input) order and keep their vertex order, so the

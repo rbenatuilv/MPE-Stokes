@@ -8,14 +8,13 @@ import pytest
 
 import biotx
 
-REPO = Path(__file__).resolve().parents[1]
 REF = np.load(Path(__file__).parent / "data" / "spx_pulsatile.npz")
 H, T = float(REF["H"]), float(REF["T"])      # non-dimensional mesh size (L0 = 1 cm), final time
 
 
 @pytest.mark.parametrize("model,deg", [("biot2", 1), ("biot2", 2), ("biot3", 2)])
 def test_pulsatile_matches_spx(model, deg):
-    exp = biotx.load(REPO / "experiments" / "pulsatile.yaml",
+    exp = biotx.load(Path(__file__).parent / "data" / "pulsatile.yaml",
                      {"model": model, "discretization.deg": deg, "geometry.h": H * 1e-2, "time.T": T,
                       "output.snapshots": [], "output.lines": {}, "output.grid": None})
     m = biotx.make_model(exp)

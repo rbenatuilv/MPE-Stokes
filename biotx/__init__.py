@@ -1,7 +1,7 @@
 """biotx: two- and three-field Biot experiments, described by YAML files.
 
     import biotx
-    exp = biotx.load("experiments/pulsatile.yaml", {"time.dt": 0.005})
+    exp = biotx.load("experiments/annulus_biot2.yaml", {"time.dt": 0.005})
     model = biotx.make_model(exp)          # TwoField or ThreeField, from exp.model
     rec = model.run(biotx.Recorder(model))
     rec.save()
@@ -22,5 +22,7 @@ def make_model(exp, domain=None):
     return MODELS[exp.model](exp, domain)
 
 
-__all__ = ["Experiment", "load", "make_model", "TwoField", "ThreeField", "Recorder",
+from biotx import convergence  # noqa: E402  (after make_model, which it uses)
+
+__all__ = ["convergence", "Experiment", "load", "make_model", "TwoField", "ThreeField", "Recorder",
            "Points", "load_results", "build_geometry", "Fields", "load_fields", "compare"]
