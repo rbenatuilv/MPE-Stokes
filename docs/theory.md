@@ -191,10 +191,10 @@ The three-field model has no time derivative in its mass equation (B5), so it ne
 
 ### 6.3 Accuracy
 
-Expected orders (from the schemes; the tests measure only spatial rates):
-
 - **Two-field:** second order in time with $\theta = 1/2$, first order with $\theta = 1$.
 - **Three-field:** second order, from Newmark.
+
+Both are confirmed by the convergence tests (Section 9).
 
 ---
 
@@ -344,20 +344,40 @@ $$
 
 ## 9. Verification
 
-**Manufactured solutions** (`tests/test_mms.py`):
+**Manufactured solutions** (`biotx/mms.py`, `tests/test_convergence.py`):
 
-- **Exact fields:** smooth, non-polynomial and nonzero on the boundary, with time dependence through a scalar factor.
-- **Sources and boundary data:** derived symbolically in UFL from (B1)–(B5) and the boundary conditions. Time derivatives are exact through `ufl.variable(t)`.
-- **Coverage:** every boundary condition kind, nonzero Dirichlet data (and its velocity), the sources, and `set_initial`.
+- **Exact fields:** given in the `exact:` section. Every other input is derived from them symbolically in UFL:
+  - the sources, by applying the strong form (B1)–(B2) or (B3)–(B5) (`strong_form` in each model);
+  - the data of every boundary condition marked `exact`;
+  - the initial state.
 
-Measured $L^2$ convergence rates:
+  Time derivatives are exact through `ufl.variable(t)`.
+- **Coverage:** every boundary condition kind, nonzero Dirichlet data (and its velocity), and a non-rest initial state.
+- **Errors:** the $L^2$ norm and the broken $H^1$ seminorm $\|\nabla_h(u - u_h)\|$, with quadrature of degree $k+4$ (`biotx/convergence.py`).
+
+Measured orders in space. The exact fields are smooth and non-polynomial, Crank–Nicolson with a small $\Delta t$; $L^2$ orders on the finest meshes:
 
 | Model | Elements | $d$ | $w$ | $p$ |
 |---|---|---|---|---|
 | two-field | P1/P1 | 1.98 | — | 1.93 |
 | three-field | P2/P2/P1 | 2.96 | 3.04 | 1.92 |
 
-These are the optimal orders $k+1$ for each field.
+These are the optimal orders $k+1$ for each field, with $k_p + 1$ for the three-field pressure. The $H^1$ orders are one less.
+
+Measured orders in time. The exact fields are linear in $x$, so the discrete spaces contain them and only the time error remains. $\Delta t = 0.1 \to 0.0125$, all fields and both norms:
+
+| Model | Scheme | order |
+|---|---|---|
+| two-field | Newmark + Crank–Nicolson ($\theta = 1/2$) | 2.00 |
+| two-field | Newmark + backward Euler ($\theta = 1$) | 0.98–1.00 |
+| three-field | Newmark | 2.00 |
+
+**Self-convergence** (no exact solution): the base mesh is refined uniformly, and the difference $e_i = \|u_i - u_{i+1}\|$ of successive levels is measured.
+
+- **Nested meshes.** The meshes are nested, so a coarse DG field lies exactly in the fine space, and $e_i$ is computed exactly in both norms. Its order equals the order of the true error.
+- **Curved boundaries.** Every level discretizes the polygon of the base mesh. At a vertex of a polygonal hole the interior angle is $\omega = \pi + 2\pi/N$ for $N$ edges, a re-entrant corner. This limits the orders to about $2\pi/\omega$ in $L^2$ and $\pi/\omega$ in $H^1$, whatever the degree.
+  - **Measured:** on the annulus with $N = 10$ cavity edges, $p$ converges at 1.68 in $L^2$ and 0.79 in $H^1$. The predictions are 1.67 and 0.83.
+  - **Consequence:** a self-convergence study on a curved domain needs a fine base mesh, and it measures the convergence on the polygon.
 
 **Regression** (`tests/test_regression_spx.py`): on the pulsatile case, biotx reproduces the results of the original spx implementation to round-off ($10^{-10}$ relative). This holds for the two-field model with P1 and P2, and for the three-field model.
 
