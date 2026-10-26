@@ -1,0 +1,13 @@
+# As annulus_biot2_h.yaml, at dt = 2.5 ms instead of 10 ms. biot3's Jacobi-scaled cond depends
+# strongly on dt (annulus_biot3_dt.yaml), so this checks whether its h^-3 growth at dt = 10 ms
+# is a regime effect of the h / dt balance (inertia against stiffness) rather than a fixed rate.
+#
+#   python -m biotx.conditioning experiments/conditioning/annulus_biot2_h_dt2.5ms.yaml
+
+base: ../annulus_biot2.yaml
+
+time: {dt: 0.0025}
+
+conditioning:
+  sweep: {geometry.h: [4.0e-3, 2.0e-3, 1.0e-3, 5.0e-4]}
+  scaling: [raw, jacobi, schur]

@@ -20,9 +20,10 @@ Contents:
 13. `solver`
 14. `exact`: manufactured solutions
 15. `convergence`: convergence studies
-16. Command line and Python overrides
-17. Errors and pitfalls
-18. Complete examples (2D, 3D)
+16. `conditioning`: condition numbers
+17. Command line and Python overrides
+18. Errors and pitfalls
+19. Complete examples (2D, 3D)
 
 ---
 
@@ -48,13 +49,14 @@ Contents:
   solver: {...}           # optional
   exact: {...}            # optional: manufactured solution (§14)
   convergence: {...}      # optional: convergence study (§15)
+  conditioning: {...}     # optional: condition-number study (§16)
   ```
 - **Where formulas are allowed.** Formulas such as `"A*sin(2*pi*t)"` are accepted only in
   `loads`, `boundaries` and `sources`. `material`, `geometry`, `params`, `scales`, `time`,
   `discretization` and `output` take plain numbers, lists and strings.
 - **Unknown keys are errors** in every section except the top level, where an extra key (e.g. a
   `description:` note) is ignored. This covers misspelled keys, sources the model does not read, and params or loads that
-  would hide a built-in name (see §17).
+  would hide a built-in name (see §18).
 - **The whole YAML is stored** in every result file (`experiment` key), so a run can always be
   reproduced.
 
@@ -540,13 +542,78 @@ res = cv.run(cv.study(biotx.load("case.yaml"), study="self", levels=3))   # from
 
 ---
 
-## 16. Command line and Python overrides
+## 16. `conditioning`: condition numbers
+
+A conditioning study measures the 2-norm condition number of the **step matrix** A (the matrix
+LU-factorised once per run), cond₂(A) = σ_max / σ_min, for each value of one swept key:
+
+```bash
+python -m biotx.conditioning study.yaml [--set KEY=VALUE]
+```
+
+```yaml
+base: ../annulus_biot2.yaml                        # the experiment (see `base:` in §15)
+conditioning:
+  sweep: {geometry.h: [4.0e-3, 2.0e-3, 1.0e-3]}    # exactly ONE dotted key and its values
+  scaling: [raw, jacobi, schur]
+  dense_check: false
+```
+
+| key | default | meaning |
+|---|---|---|
+| `sweep` | required | one dotted key of the YAML (any: `geometry.h`, `geometry.n`, `time.dt`, `material.K`, `discretization.zeta`, `scales`, …) and the list of its values |
+| `scaling` | `[raw, jacobi, schur]` | `raw`: A as assembled (non-dimensional). `jacobi`: \|D\|^-1/2 A \|D\|^-1/2 with D = diag(A), which removes the effect of the units of each block. `schur`: as `jacobi`, but each pressure unknown is scaled by \|a_ii\| + Σ_{j∉p} \|a_ij a_ji\|/\|a_jj\|, the diagonal of its approximate Schur complement (serial only) |
+| `dense_check` | `false` | also compute cond₂ with a dense numpy SVD, to check the SLEPc values (serial, ≤ 8000 dofs) |
+
+It prints a table and saves `<dir>/<output.dir>/<name>.npz` (read with
+`biotx.conditioning.load_result`). The columns:
+
+- **`h max`, `h eff`**: the largest cell diameter and the effective size (|Ω| / ncells)^(1/dim).
+  The slope of a mesh sweep is measured against `h eff`, because the largest diameter of an
+  unstructured gmsh mesh hardly follows the refinement.
+- **`cond`, `slope`**: cond₂ and log(cond_{i+1}/cond_i) / log(s_{i+1}/s_i), with s = `h eff` for
+  `geometry.h` or `geometry.n`, and the swept value for other numeric keys. SIPG gives cond ~ h⁻².
+- **`s_min share`**: how the singular vector of σ_min is split over the fields (d, w, p): the
+  fraction of its squared norm on each field's dofs. It shows which unknowns make A nearly
+  singular. The file also has `share_max` for σ_max.
+
+Details:
+
+- **Which matrix.** The matrix of a regular time step. In biot2 with `startup_steps` it is the
+  matrix of the requested `theta`, not the θ = 1 matrix of the start-up steps.
+- **How.** A is not symmetric, so its eigenvalues are not its singular values. σ_max comes from
+  the SLEPc SVD solver. σ_min = 1/√λ_max of A⁻¹A⁻ᵀ, a symmetric eigenproblem whose operator costs
+  one transposed and one plain solve with the MUMPS factorisation per iteration. The raw case
+  reuses the model's factorisation; `jacobi` and `schur` need one more factorisation each, one at a time.
+- **Solver.** Only the direct solver is supported: `solver:` may add MUMPS options, not a Krylov method.
+- **SI against scaled** (`sweep: {scales: [...]}`) is not a pure change of units in biot2: the
+  Darcy penalty uses max(κ, 1) in the units of the solve, so the discrete problem changes too.
+- **Which scaling to read.** `raw` is what the direct solver factorises. `jacobi` removes units, but
+  it under-scales the biot3 pressure, which is controlled through its coupling to w (a saddle point),
+  not by its tiny storage diagonal: Jacobi-scaled biot3 grows like h⁻³. `schur` scales the pressure by
+  what controls it and is the fair comparison between the models (and what a block preconditioner faces).
+- `jacobi` is an error if a diagonal entry is zero (biot3 with `c0: 0`: the pressure block is zero).
+  `schur` is defined there.
+
+```python
+from biotx import conditioning as cn
+c = cn.condition(biotx.make_model(exp), "jacobi")         # .cond, .smax, .smin, .share_min, ...
+res = cn.run(cn.study(exp, sweep={"time.dt": [0.02, 0.01]})); print(res.table()); res.save()
+```
+
+Examples are in `experiments/conditioning/`.
+
+---
+
+## 17. Command line and Python overrides
 
 ```bash
 python -m biotx.run case.yaml                                  # run
 python -m biotx.run case.yaml --set time.dt=0.005 --name fine  # override + output name
 mpirun -n 4 python -m biotx.run case.yaml                      # parallel
 python -m biotx.compare ref.npz a.npz b.npz --t-min 2          # compare (needs output.fields)
+python -m biotx.convergence study.yaml --set discretization.deg=2   # convergence study (§15)
+python -m biotx.conditioning study.yaml                       # condition numbers (§16)
 ```
 
 - `--set KEY=VALUE` uses dotted keys of the YAML tree. The value is read as YAML, so quote it
@@ -565,7 +632,7 @@ python -m biotx.compare ref.npz a.npz b.npz --t-min 2          # compare (needs 
 
 ---
 
-## 17. Errors and pitfalls
+## 18. Errors and pitfalls
 
 These are reported as **errors**:
 
@@ -581,12 +648,13 @@ These are reported as **errors**:
 - `exact` missing a field of the model, `exact` together with `sources`, a boundary value `exact`
   without an `exact` section, or `normal_traction: exact`;
 - a `convergence` section with an unknown study or key, or with fewer than two levels;
+- a `conditioning` section with an unknown key, or a `sweep` with other than one key;
 - `flux` ≠ 0 with `biot3`;
 - `grid` on a 3D mesh, or `slices` on a 2D mesh.
 
 These are **not** detected, so watch for them:
 
-- unknown keys at the top level, which are ignored (`base:` is read only by `biotx.convergence`);
+- unknown keys at the top level, which are ignored (`base:` is read only by `biotx.convergence` and `biotx.conditioning`);
 - `r` is measured from the **origin**, not from the centre of a shifted disc or hole. Write
   `sqrt((x - 3e-3)**2 + y**2)` instead;
 - probes, lines or slices outside the mesh, which give NaN rather than an error;
@@ -594,7 +662,7 @@ These are **not** detected, so watch for them:
 
 ---
 
-## 18. Complete examples
+## 19. Complete examples
 
 ### 2D: every section used
 

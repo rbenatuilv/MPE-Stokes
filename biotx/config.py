@@ -242,6 +242,26 @@ def from_dict(raw: dict, name: str = "experiment", root=".") -> Experiment:
         convergence=raw.get("convergence", {}), raw=copy.deepcopy(raw), root=Path(root))
 
 
+def merge(base: dict, top: dict) -> dict:
+    """base updated with top, recursively for nested sections."""
+    out = copy.deepcopy(base)
+    for k, v in top.items():
+        out[k] = merge(out[k], v) if isinstance(v, dict) and isinstance(out.get(k), dict) else v
+    return out
+
+
+def read_study(path) -> dict:
+    """The YAML tree of a study file. A top-level `base:` names another YAML (relative to the
+    study) that the study extends with its own keys; the base's `output` is dropped."""
+    path = Path(path)
+    raw = yaml.safe_load(path.read_text())
+    if "base" in raw:
+        base = yaml.safe_load((path.parent / raw.pop("base")).read_text())
+        base.pop("output", None)                         # probes etc. are not used by studies
+        raw = merge(base, raw)
+    return raw
+
+
 def load(path, overrides: dict | None = None) -> Experiment:
     """Read a YAML experiment, applying dotted-key overrides."""
     path = Path(path)

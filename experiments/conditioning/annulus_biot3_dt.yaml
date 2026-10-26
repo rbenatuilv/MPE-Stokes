@@ -1,0 +1,11 @@
+# Condition number of the biot3 step matrix (P2/P2/P1) on the annulus with the brain parameters,
+# against the time step, on the mesh of the experiment (h = 5e-4). dt enters the matrix through
+# Newmark (inertia / (beta dt^2), and the drag (1/kappa) gamma / (beta dt)).
+#
+#   python -m biotx.conditioning experiments/conditioning/annulus_biot3_dt.yaml
+
+base: ../annulus_biot3.yaml
+
+conditioning:
+  sweep: {time.dt: [0.04, 0.02, 0.01, 0.005, 0.0025]}
+  scaling: [raw, jacobi, schur]

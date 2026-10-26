@@ -175,27 +175,36 @@ class BoundaryConditions:
 
 
 # ---- linear solver -----------------------------------------------------------------------
+_ksp_count = 0
+
+
+def make_ksp(A, options=None):
+    """KSP for the matrix A: MUMPS LU plus the extra PETSc options, under its own options
+    prefix (so that several solvers in one script do not interfere)."""
+    global _ksp_count
+    _ksp_count += 1
+    prefix = f"biotx{_ksp_count}_"
+    ksp = PETSc.KSP().create(A.comm)
+    ksp.setOperators(A)
+    ksp.setOptionsPrefix(prefix)
+    opts = PETSc.Options()
+    opts.prefixPush(prefix)
+    for k, v in {**MUMPS, **(options or {})}.items():
+        opts[k] = v
+    opts.prefixPop()
+    ksp.setFromOptions()
+    return ksp
+
+
 class LinearSolver:
     """A assembled and LU-factorised once; the right-hand side reassembled every step."""
-
-    _count = 0
 
     def __init__(self, a, L, W, options=None):
         self.a, self.L = dolfinx.fem.form(a), dolfinx.fem.form(L)
         self.A = dolfinx.fem.petsc.assemble_matrix(self.a)
         self.A.assemble()
         self.b = dolfinx.fem.petsc.create_vector(W)
-        self.ksp = PETSc.KSP().create(self.A.comm)
-        self.ksp.setOperators(self.A)
-        LinearSolver._count += 1
-        prefix = f"biotx{LinearSolver._count}_"
-        self.ksp.setOptionsPrefix(prefix)
-        opts = PETSc.Options()
-        opts.prefixPush(prefix)
-        for k, v in {**MUMPS, **(options or {})}.items():
-            opts[k] = v
-        opts.prefixPop()
-        self.ksp.setFromOptions()
+        self.ksp = make_ksp(self.A, options)
 
     def update_matrix(self):
         """Reassemble A (after a Constant in the bilinear form changed); refactorises."""
