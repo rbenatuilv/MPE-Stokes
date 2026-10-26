@@ -1,22 +1,16 @@
-name: spx
+name: biotx
 channels:
   - conda-forge
   - nodefaults            # never mix in the anaconda defaults channel
 dependencies:
   - python=3.12
-  - fenics-dolfinx=0.11.0
+  - fenics-dolfinx=0.11.0 # brings its own C compiler (gcc) for the form JIT
   - petsc=*=real*         # real (not complex) PETSc build
   - mpich                 # one MPI implementation, chosen explicitly
-  - cxx-compiler          # conda's C++ toolchain, for building multiphenicsx
-  - cmake                 # build tools used by multiphenicsx's C++ part
-  - ninja
-  - nanobind
-  - scikit-build-core
-  - setuptools            # build backend for your own package (Step 1)
+  - setuptools            # build backend of biotx (pip install -e .)
   - python-gmsh           # mesh generation / import
   - pyyaml                # config files
   - numpy
-  - pandas                # convergence tables
   - matplotlib
   - pytest
-  - pip                   # multiphenicsx is built by hand, see 0.3
+  - pip                   # then, from the repo root: pip install -e . --no-deps --no-build-isolation
