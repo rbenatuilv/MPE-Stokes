@@ -1,0 +1,32 @@
+# Three-field Biot, manufactured solution, refinement in TIME.
+# The exact solution lies in P2/P2/P1 in space, so only the Newmark error is measured.
+# Expected order 2.
+#
+#   python -m biotx.convergence experiments/convergence/mms_biot3_time.yaml
+
+model: biot3
+
+material: {lambda: 1.0, mu: 1.0, alpha: 1.0, c0: 1.0, K: 1.0, muF: 1.0, rho: 1.0,
+           rho_f: 1.0, phi: 0.5, tortuosity: 1.0}
+
+geometry: {shape: rectangle, corners: [[0, 0], [1, 1]], n: [4, 4]}
+
+exact:
+  d: ["exp(t) * (x + 2*y)", "exp(t) * (x - y)"]
+  w: ["cos(t) * (1 + y)", "cos(t) * (2 - x)"]
+  p: "sin(t) * (1 + x + y)"
+
+boundaries:
+  left:   {displacement: exact, pressure: exact}
+  bottom: {displacement: exact, pressure: exact}
+  right:  {traction: exact,     pressure: exact}
+  top:    {traction: exact,     pressure: exact}
+
+discretization: {deg: 2}
+
+time: {T: 1.0}
+
+convergence:
+  study: time
+  dt: [0.1, 0.05, 0.025, 0.0125]
+  norms: [L2]                                 # in time both norms converge at the same order

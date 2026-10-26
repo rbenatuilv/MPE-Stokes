@@ -1,0 +1,38 @@
+# Two-field Biot, manufactured solution, refinement in SPACE.
+# Every boundary condition kind is used; all data come from the exact solution. Expected
+# orders for P_k/P_k: k+1 (L2) and k (H1) for d and p, k for the flux in L2.
+#
+#   python -m biotx.convergence experiments/convergence/mms_biot2_space.yaml
+#   python -m biotx.convergence experiments/convergence/mms_biot2_space.yaml --set discretization.deg=2
+
+# The exact solution vanishes with its time derivative at t0 (factor sin(t)**2): the run then
+# starts from an exactly representable state (zero). A nonzero initial state is only
+# interpolated, and the mismatch with the discrete equilibrium keeps oscillating (Newmark has no
+# damping): harmless in d, but it costs one order in the velocity and the biot3 flux.
+
+model: biot2
+
+material: {lambda: 1.0, mu: 1.0, alpha: 1.0, c0: 1.0, K: 1.0, muF: 1.0, rho: 1.0}
+
+geometry: {shape: rectangle, corners: [[0, 0], [1, 1]]}      # n set by the study
+
+exact:
+  d: ["sin(t)**2 * sin(pi*x) * cos(pi*y)", "sin(t)**2 * sin(pi*y) * cos(pi*x)"]
+  p: "sin(t)**2 * (cos(pi*x) * cos(pi*y) + 0.5)"
+
+boundaries:
+  left:   {displacement: exact, pressure: exact}
+  bottom: {displacement: exact, flux: exact}
+  right:  {traction: exact,     flux: exact}
+  top:    {traction: exact,     pressure: exact}
+
+discretization: {deg: 1}
+
+time: {T: 0.1, dt: 0.003125, theta: 0.5}    # small dt: the time error stays below the space error
+                                            # (for deg 2, use --set time.dt=0.0015625)
+
+convergence:
+  study: space
+  n: [8, 16, 32, 64]
+  norms: [L2, H1]
+  at: final

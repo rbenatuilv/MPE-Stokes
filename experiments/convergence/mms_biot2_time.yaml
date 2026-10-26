@@ -1,0 +1,31 @@
+# Two-field Biot, manufactured solution, refinement in TIME.
+# The exact solution is linear in x, so the P1 discrete space contains it and the mesh adds no
+# error: everything measured is the error of Newmark + theta. Expected order 2 with theta = 0.5
+# (Crank-Nicolson), 1 with theta = 1 (backward Euler: --set time.theta=1).
+#
+#   python -m biotx.convergence experiments/convergence/mms_biot2_time.yaml
+
+model: biot2
+
+material: {lambda: 1.0, mu: 1.0, alpha: 1.0, c0: 1.0, K: 1.0, muF: 1.0, rho: 1.0}
+
+geometry: {shape: rectangle, corners: [[0, 0], [1, 1]], n: [4, 4]}
+
+exact:
+  d: ["exp(t) * (x + 2*y)", "exp(t) * (x - y)"]
+  p: "sin(t) * (1 + x + y)"
+
+boundaries:
+  left:   {displacement: exact, pressure: exact}
+  bottom: {displacement: exact, flux: exact}
+  right:  {traction: exact,     flux: exact}
+  top:    {traction: exact,     pressure: exact}
+
+discretization: {deg: 1}
+
+time: {T: 1.0, theta: 0.5}                    # dt set by the study
+
+convergence:
+  study: time
+  dt: [0.1, 0.05, 0.025, 0.0125]
+  norms: [L2]                                 # in time both norms converge at the same order
