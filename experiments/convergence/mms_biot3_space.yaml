@@ -1,0 +1,37 @@
+# Three-field Biot, manufactured solution, refinement in SPACE.
+# biot3 supports only zero flux, so every hydraulic condition is a pressure. Expected orders
+# for P2/P2/P1: 3 (L2) and 2 (H1) for d and w, 2 (L2) and 1 (H1) for p, 3 for the flux.
+#
+#   python -m biotx.convergence experiments/convergence/mms_biot3_space.yaml
+
+# The exact solution vanishes with its time derivative at t0 (factor sin(t)**2): the run then
+# starts from an exactly representable state (zero). A nonzero initial state is only
+# interpolated, and the mismatch with the discrete equilibrium keeps oscillating (Newmark has no
+# damping): harmless in d, but it costs one order in the velocity and the biot3 flux.
+
+model: biot3
+
+material: {lambda: 1.0, mu: 1.0, alpha: 1.0, c0: 1.0, K: 1.0, muF: 1.0, rho: 1.0,
+           rho_f: 1.0, phi: 0.5, tortuosity: 1.0}
+
+geometry: {shape: rectangle, corners: [[0, 0], [1, 1]]}
+
+exact:
+  d: ["sin(t)**2 * sin(pi*x) * cos(pi*y)", "sin(t)**2 * sin(pi*y) * cos(pi*x)"]
+  w: ["sin(t)**2 * (cos(pi*x) * sin(pi*y) + 0.2)", "sin(t)**2 * (cos(pi*y) * sin(pi*x) + 0.2)"]
+  p: "sin(t)**2 * (cos(pi*x) * cos(pi*y) + 0.5)"
+
+boundaries:
+  left:   {displacement: exact, pressure: exact}
+  bottom: {displacement: exact, pressure: exact}
+  right:  {traction: exact,     pressure: exact}
+  top:    {traction: exact,     pressure: exact}
+
+discretization: {deg: 2}                      # deg_p = 1
+
+time: {T: 0.1, dt: 0.0015625}                # small dt: P2 space errors reach ~1e-5
+
+convergence:
+  study: space
+  n: [4, 8, 16, 32]
+  norms: [L2, H1]

@@ -1,0 +1,21 @@
+# Self-convergence of the annulus experiment (no exact solution): the base mesh is refined
+# uniformly twice and e_i = ||u_i - u_i+1|| is measured at the snapshot times.
+#
+# The refined meshes are nested, so they all discretize the polygon of the base mesh: its
+# vertices on the cavity are re-entrant corners (interior angle pi + 2 pi / N for N edges), which
+# limit the orders to about 2 pi / angle (L2) and pi / angle (H1). With h = 5e-4 the cavity has
+# about 38 edges: L2 order <= 1.9, H1 <= 0.95, whatever the degree.
+#
+#   python -m biotx.convergence experiments/convergence/annulus_biot2_self.yaml
+
+base: ../annulus_biot2.yaml                  # the experiment, with these keys changed:
+
+discretization: {deg: 1}
+
+convergence:
+  study: self
+  levels: 3                                  # base mesh + 2 refinements (a 4th level: ~2e5 cells,
+                                             # too large for a direct solver in 5 GB)
+  at: [2.5, 3.0]                             # maximum over these times
+  refine_dt: false
+  norms: [L2, H1]

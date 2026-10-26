@@ -1,0 +1,54 @@
+# Two-field Biot (d, p) on a concentric annulus.
+# A fluid-filled cavity (radius 3 mm) inside a poroelastic ring (outer radius 1 cm). The cavity
+# pressure pc(t) pulses once per second, pushing on both the pore fluid and the solid; the outer
+# wall is fixed and drained. The geometry and loads are symmetric about the centre, so the
+# solution is radial: the probe and the radial line describe it fully.
+#
+#   python -m biotx.run experiments/annulus_biot2.yaml
+#
+# Everything is in SI. The scales only set the non-dimensional problem that is solved.
+
+model: biot2
+
+scales: {L0: 1.0e-2, T0: 1.0, P0: 1500.0}           # m, s, Pa
+
+material:                                            # brain tissue (Morasca 2025, Table 3)
+  mu: 1500.0          # Pa
+  lambda: 11567.0     # Pa
+  alpha: 0.49
+  c0: 1.0e-6          # 1/Pa
+  K: 1.57e-11         # m^2
+  muF: 3.5e-3         # Pa s
+  rho: 1000.0         # kg/m^3
+
+geometry:
+  shape: annulus
+  radius: 1.0e-2                                     # outer circle, centred at the origin
+  inner: {center: [0.0, 0.0], radius: 3.0e-3}
+  h: 5.0e-4
+  names: {inner: cavity, outer: wall}
+
+params:
+  A: 133.3            # Pa = 1 mmHg, pulse amplitude
+  f: 1.0              # Hz
+
+loads:
+  pc: "A * (1 - cos(2*pi*f*t)) / 2"                  # starts from rest, peak A at t = 0.5 s
+
+boundaries:
+  cavity: {pressure: pc, normal_traction: -pc}       # cavity fluid pushes on fluid and solid
+  wall:   {pressure: 0,  displacement: [0, 0]}       # drained, fixed
+
+discretization: {deg: 2}                             # P2/P2, penalties eta = zeta = 10
+
+time: {T: 3.0, dt: 0.01, theta: 0.5}                 # Crank-Nicolson for the pressure
+
+output:
+  series: [p, flux, d]                               # at the probe, every step
+  probes:
+    mid: [6.5e-3, 0.0]                               # halfway through the ring
+  lines:
+    radial: {from: [3.01e-3, 0.0], to: [9.99e-3, 0.0], n: 201}   # cavity -> wall
+  grid: 81
+  snapshots: [2.25, 2.5, 2.75, 3.0]                  # four phases of the third cycle
+  fields: true                                       # full fields, for biotx.compare
