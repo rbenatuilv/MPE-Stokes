@@ -3,7 +3,7 @@
 This note states the continuous models, the assumptions behind them, and the discretization implemented in `biotx/`:
 
 - the **two-field** model $(d, p)$, in `biotx/biot2.py`;
-- the **three-field** model $(d, w, p)$ with fluid inertia (Morasca 2025), in `biotx/biot3.py`.
+- the **three-field** model $(d, w, p)$ with fluid inertia in `biotx/biot3.py`.
 
 The shared pieces are in `biotx/common.py`. The equation tags (B1), (D2) and so on are the ones used in the documentation of the code. This note grew out of the former `spx` package, a coupled Stokes–Biot code archived in `~/thesis/archive/spx_2026-10-26.tar.gz`. Only its Biot part is described here.
 
