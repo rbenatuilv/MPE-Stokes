@@ -7,10 +7,8 @@
 --set takes dotted keys of the YAML tree; values are parsed as YAML (numbers, lists, strings).
 """
 import argparse
-import time
 
 import yaml
-from mpi4py import MPI
 
 import biotx
 
@@ -30,24 +28,7 @@ def main(argv=None):
         overrides["output.name"] = args.name
     exp = biotx.load(args.yaml, overrides)
 
-    rank0 = MPI.COMM_WORLD.rank == 0
-    t0 = time.perf_counter()
-    model = biotx.make_model(exp)
-    if rank0:
-        ncells = model.mesh.topology.index_map(model.mesh.topology.dim).size_global
-        print(f"{exp.name}: {exp.model}, {ncells} cells, {model.W.dofmap.index_map.size_global * model.W.dofmap.index_map_bs} dofs, "
-              f"{exp.time.nsteps} steps (setup {time.perf_counter() - t0:.1f} s)")
-    rec = biotx.Recorder(model)
-    rec(model)
-    every = max(1, exp.time.nsteps // 10)
-    for t in model.steps():
-        rec(model)
-        if rank0 and model.step % every == 0:
-            print(f"  t = {t:.4g} s  ({time.perf_counter() - t0:.1f} s)", flush=True)
-    path = rec.save()
-    if rank0:
-        print(f"saved {path}")
-
+    biotx.simulate(exp)
 
 if __name__ == "__main__":
     main()
