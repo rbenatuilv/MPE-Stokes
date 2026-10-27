@@ -416,6 +416,47 @@ bounds how much relative perturbations of $b$ (round-off, data) can grow in $x$.
 
 ---
 
-## 11. Notes from the original implementation
+## 11. Conservative velocity (H(div) reconstruction)
+
+A transport equation $\partial_t c + \nabla\cdot(q\,c) - \mu\Delta c = f$ needs a velocity that conserves the fluid cell by cell; otherwise the mismatch acts as a solute source.
+
+**What is and is not conservative.**
+- **The scheme is conservative with its numerical flux $\hat F$.** Testing the mass equation with the indicator of a cell $K$ (an allowed DG test function) gives, over one step, $\text{gained}_K + \int_{\partial K}\hat F = 0$ exactly. $\hat F$ has one value per facet, which is what makes the balance close.
+  - Two-field: $-\kappa\{\nabla p\}\cdot n + \tfrac{\zeta\tilde\kappa k^2}{h_F}[\![p]\!]$, θ-weighted, with its Nitsche form on $\Gamma_p$ and $g_q$ on $\Gamma_q$.
+  - Three-field: $\{\Delta w\}\cdot n/\Delta t$.
+- **The raw velocities are not.** $-\kappa\nabla p_h$ and $\dot w_h$ are cellwise fields whose normal components differ on the two sides of a facet.
+  - On the brain annulus, $-\kappa\nabla p_h$ leaves about 0.3 % of the throughput unbalanced, and up to 20 % in the worst cells.
+  - $(w^{n+1} - w^n)/\Delta t$ leaves $4\cdot10^{-6}$; the end-of-step $\dot w^{n+1}$ adds a time error about 1000 times larger.
+  - See `experiments/balance/`.
+
+**H(div)** is the space of vector fields with a square-integrable divergence. For piecewise polynomials, that means the normal component is continuous across facets. It is not a divergence-free condition: here $\nabla\cdot u$ is the rate at which the cells release fluid.
+
+**The reconstruction** (`biotx/flux.py`, after each step, without touching the solver) is the Raviart–Thomas field $u$, with normal traces of degree $k$ ($k = k_p$ for two-field, $k$ = deg for three-field), defined by
+
+$$\int_F (u\cdot n)\,\mu = \int_F \hat F\,\mu \quad \forall \mu \in \mathbb P_k(F), \qquad
+\int_K u\cdot\psi = \int_K \bar q\cdot\psi + L_K(\psi) \quad \forall \psi \in [\mathbb P_{k-1}(K)]^d .$$
+
+Here $\bar q$ is the step-consistent raw velocity: $\theta q^{n+1} + (1-\theta) q^n$ for two-field, and $(w^{n+1} - w^n)/\Delta t$ for three-field. $L_K$ lifts the symmetric SIPG term into the cell: in the two-field model, $L_K(\psi) = \sum_{F\subset\partial K}\int_F \omega\,\kappa\,(\psi\cdot n_K)[\![p_\theta]\!]$, with $\omega = 1/2$ on interior facets and 1 on $\Gamma_p$. In the three-field model $L_K = 0$. With this lifting,
+
+$$(\nabla\cdot u, q)_K = -\text{gained}(q) \quad \forall q \in \mathbb P_{k_p}(K),$$
+
+that is, the divergence is the solver's fluid balance against every pressure test function, not only on cell averages. That is what a higher-order DG transport needs to keep a uniform concentration uniform. This is the construction of Ern, Nicaise and Vohralík (2007) and of Bastian and Rivière (2003).
+
+**Use.** The output quantity `cflux` (YAML `output.series` / `output.fields`) is this field, and `cbflux_<boundary>` its flow through each boundary. Saving every step of a period (`snapshots: {from, to}`) and `Fields.average` give the replayed or period-averaged velocity for a transport solve.
+
+**Computation.**
+- The facet and interior unknowns decouple. The facet block is block diagonal by facet and the interior block by cell.
+- Both are constant, so they are factorised once, and each step costs two right-hand sides.
+- Serial only for now.
+
+**Verified** (`tests/test_flux.py`, `experiments/balance/`):
+- The facet flows equal $\hat F$ and the normal jumps vanish, to round-off.
+- The divergence identity holds to round-off.
+- The reconstruction converges at the order of the raw flux, $k_p$ for two-field and deg + 1 for three-field, with nearly the same error.
+- On the brain annulus the fake fluid drops to $10^{-13}$ (two-field) and $10^{-14}$ (three-field) of the throughput.
+
+---
+
+## 12. Notes from the original implementation
 
 The original code (`sp/variational_forms.py`, before spx) used inconsistent boundary sets for the $p$–$d$ coupling. The momentum-row term was integrated on $\Gamma_d$, but the mass-row term and its data were integrated on $\Gamma_p$ (pressure Dirichlet). Both come from the weakly imposed displacement, so both belong on $\Gamma_d$ (D4). The old test case could not detect this, because it had $\Gamma_d = \Gamma_p$.

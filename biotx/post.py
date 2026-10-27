@@ -6,15 +6,19 @@ in SI (positions in m, times in s, p in Pa, d in m, q in m/s).
     rec.save()                           # -> <yaml dir>/<output.dir>/<name>.npz
     res = load_results(path)             # dict of arrays + the experiment YAML
 
-Quantities (model.quantity(name)): "d", "p", "flux" (Darcy flux q), "velocity" (solid d_t),
-and "w" for the three-field model.
+Quantities (model.quantity(name)): "d", "p", "flux" (Darcy flux q, the raw field), "velocity"
+(solid d_t), "cflux" (the conservative Darcy flux of each step, biotx.flux) and "w" for the
+three-field model. Asking for cflux in `series` or `fields` makes the Recorder start the
+reconstruction, so create the Recorder before the first step.
 
 Recorded every step
     t                         times
     probe_<quantity>          (nsteps, nprobes[, dim]) values at the probes, for `series`
     bflux_<boundary>          integral of q.n over each named boundary [m^2/s per unit depth
                               in 2D, m^3/s in 3D]: positive = fluid leaving the tissue
-Recorded at the `snapshots` times
+    cbflux_<boundary>         the same with cflux (when cflux is recorded): exactly the solver's
+                              boundary flow over the last step
+Recorded at the `snapshots` times (a list, or every step of a window {from, to, every})
     snap_t                    times actually hit (nearest step)
     grid_<quantity>           (nsnap, n*n[, dim]) 2D: on an n x n grid over the bounding box
     slice_<name>_<quantity>   (nsnap, n*n, [dim]) 3D: on an n x n grid in a plane (see slice_points)
@@ -134,18 +138,39 @@ class NormalJump:
 
 
 class BoundaryFlux:
-    """Integral of q.n over each named boundary, in SI (outflow positive)."""
+    """Integral of q.n over each named boundary, in SI (outflow positive): bflux_<name> with the
+    raw flux, and cbflux_<name> with the conservative one (cflux) if asked for."""
 
-    def __init__(self, model):
-        s, q, n = model.exp.scales, model.flux(), model.m.n
+    def __init__(self, model, cflux=False):
+        s, n = model.exp.scales, model.m.n
         dim = model.mesh.geometry.dim
         self.factor = (s.L0 / s.T0) * s.L0 ** (dim - 1)
-        self.forms = {name: dolfinx.fem.form(ufl.inner(q, n) * model.m.ds(tag))
-                      for name, tag in model.domain.names.items()}
+        fields = {"bflux": model.flux(), **({"cbflux": model.quantity("cflux")[0]} if cflux else {})}
+        self.forms = {f"{key}_{name}": dolfinx.fem.form(ufl.inner(q, n) * model.m.ds(tag))
+                      for key, q in fields.items() for name, tag in model.domain.names.items()}
         self.mesh = model.mesh
 
     def __call__(self):
         return {name: self.factor * _scalar(self.mesh, f) for name, f in self.forms.items()}
+
+
+def dg_space(V):
+    """V itself if it is DG, else the DG space of the same polynomial degree and shape (which
+    contains V: an RT field is a polynomial on each cell, so it is copied exactly)."""
+    el = V.ufl_element()
+    if el.discontinuous:
+        return V
+    return dolfinx.fem.functionspace(V.mesh, ("DG", el.embedded_superdegree, V.value_shape))
+
+
+def copy_to(g, f, factor=1.0):
+    """g <- factor * f, g in dg_space(f's space)."""
+    if g.function_space == f.function_space:
+        g.x.array[:] = factor * f.x.array
+    else:
+        g.interpolate(f)
+        g.x.array[:] *= factor
+    g.x.scatter_forward()
 
 
 class Recorder:
@@ -167,11 +192,15 @@ class Recorder:
             self.grid = (pts, Points(mesh, pts, L0))
         self.slices = {k: (pts, Points(mesh, pts, L0))
                        for k, pts in ((k, slice_points(mesh, v, L0)) for k, v in self.o.slices.items())}
-        self.jump = NormalJump(model) if self.o.snapshots else None
-        self.bflux = BoundaryFlux(model) if self.o.boundary_flux else None
+        self.snap_times = self.o.times(model.exp.time)
+        names = DEFAULT_FIELDS if self.o.fields is True else (self.o.fields or [])
+        cflux = "cflux" in self.o.series or "cflux" in names
+        if cflux:
+            model.quantity("cflux")                      # start the reconstruction (before any step)
+        self.jump = NormalJump(model) if self.snap_times else None
+        self.bflux = BoundaryFlux(model, cflux) if self.o.boundary_flux else None
         self.data = {}
         self.snap_quantities = sorted(set(self.o.series) | {"flux", "p"})
-        names = DEFAULT_FIELDS if self.o.fields is True else (self.o.fields or [])
         self.fields = FieldWriter(model, names) if names else None
         self.writers = self._open_paraview() if self.o.paraview else None
 
@@ -187,9 +216,9 @@ class Recorder:
                 f, fac = m.quantity(name)
                 self._append(f"probe_{name}", self.probes(f, fac))
         if self.bflux is not None:
-            for name, v in self.bflux().items():
-                self._append(f"bflux_{name}", v)
-        if any(abs(t - ts) < dt / 2 for ts in self.o.snapshots):
+            for key, v in self.bflux().items():
+                self._append(key, v)
+        if any(abs(t - ts) < dt / 2 for ts in self.snap_times):
             self._append("snap_t", t)
             for name in self.snap_quantities:
                 f, fac = m.quantity(name)
@@ -206,14 +235,15 @@ class Recorder:
             self._write_paraview(t)
 
     # ParaView: one VTX file per quantity (VTX writes DG fields exactly), in SI: the values are
-    # copied into SI Functions, and the mesh coordinates are scaled by L0 only while writing.
+    # copied into SI Functions (cflux, a Raviart-Thomas field, into DG of its polynomial degree,
+    # exactly), and the mesh coordinates are scaled by L0 only while writing.
     def _open_paraview(self):
         out = self.path().with_suffix("")
         out.mkdir(parents=True, exist_ok=True)
         ws = {}
         for name in self.snap_quantities + ["d"]:
             f, fac = self.model.quantity(name)
-            g = dolfinx.fem.Function(f.function_space, name=name)
+            g = dolfinx.fem.Function(dg_space(f.function_space), name=name)
             ws[name] = (f, fac, g, dolfinx.io.VTXWriter(self.model.mesh.comm, out / f"{name}.bp", [g]))
         return ws
 
@@ -223,7 +253,7 @@ class Recorder:
         x *= self.L0
         try:
             for f, fac, g, w in self.writers.values():
-                g.x.array[:] = fac * f.x.array
+                copy_to(g, f, fac)
                 w.write(t)
         finally:
             x[:] = x0                                    # exactly the solver's coordinates again

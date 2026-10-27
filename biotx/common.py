@@ -236,7 +236,7 @@ class BiotModel:
 
     fields: tuple = ()
     units = {"d": "displacement", "w": "displacement", "p": "pressure",
-             "flux": "velocity", "velocity": "velocity"}
+             "flux": "velocity", "velocity": "velocity", "cflux": "velocity"}
 
     def __init__(self, exp, domain=None):
         """domain: an already built geometry.Domain (to reuse one mesh in several runs)."""
@@ -280,6 +280,7 @@ class BiotModel:
             self.V[f], self._dofs[f] = V, np.asarray(dofs).reshape(-1)
             self.u[f] = dolfinx.fem.Function(V, name=f)
         self.sol = dolfinx.fem.Function(self.W)
+        self.reconstruction = None                     # biotx.flux.Reconstruction, made on request (cflux)
 
         self._init_state()
         F = self._residual(dict(zip(self.fields, ufl.TrialFunctions(self.W))),
@@ -335,6 +336,8 @@ class BiotModel:
                 self.u[f].x.scatter_forward()
             if self._advance():
                 self.solver.update_matrix()
+            if self.reconstruction is not None:         # the conservative velocity of this step
+                self.reconstruction.step()
             self.t_old.value = self.t.value
             self.time, self.step = tc.t0 + step * tc.dt, step
             yield self.time
@@ -348,8 +351,19 @@ class BiotModel:
                 recorder(self)
         return recorder
 
+    def conservative_flux(self):
+        """The H(div) velocity of the last step (biotx.flux), non-dimensional. The reconstruction is
+        made on the first call, which must come before the first step; from then on every step
+        updates it. Before any step it is zero."""
+        if self.reconstruction is None:
+            if self.step != 0:
+                raise RuntimeError("cflux: request it before the first step (it needs every step)")
+            from biotx.flux import Reconstruction      # (flux imports this module)
+            self.reconstruction = Reconstruction(self)
+        return self.reconstruction.u
+
     def quantity(self, name):
-        """(Function, factor to SI) of an output quantity: d, p, flux, velocity (w in biot3)."""
-        f = {"flux": self.flux, "velocity": lambda: self.sd.z_old}.get(name)
+        """(Function, factor to SI) of an output quantity: d, p, flux, velocity, cflux (w in biot3)."""
+        f = {"flux": self.flux, "velocity": lambda: self.sd.z_old, "cflux": self.conservative_flux}.get(name)
         func = f() if f else self.u[name]
         return func, 1.0 / self.exp.scales.factor[self.units[name]]

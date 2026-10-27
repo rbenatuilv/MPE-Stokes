@@ -126,10 +126,29 @@ class Output:
     lines: dict = field(default_factory=dict)     # name -> {from: [x, y], to: [x, y], n: int}
     grid: int | None = None                       # 2D: n x n grid over the bounding box
     slices: dict = field(default_factory=dict)    # 3D: name -> {normal: x|y|z, at: value, n: int}
-    snapshots: list = field(default_factory=list) # times of grid / slice / line / jump / fields
-    fields: bool | list = False                   # full DG fields at the snapshots (true: d, p, flux)
+    snapshots: list | dict = field(default_factory=list)   # times of grid / slice / line / jump / fields:
+                                                  # a list, or every step of a window {from, to, every}
+    fields: bool | list = False                   # full fields at the snapshots (true: d, p, flux)
     boundary_flux: bool = True                    # integral of q.n on every named boundary
     paraview: int = 0                             # write .bp files (SI) every n steps (0: never)
+
+    def __post_init__(self):
+        if isinstance(self.snapshots, dict):
+            unknown = set(self.snapshots) - {"from", "to", "every"}
+            if unknown or not {"from", "to"} <= set(self.snapshots):
+                raise ValueError("output.snapshots: a list of times or {from, to, every}; "
+                                 f"got keys {sorted(self.snapshots)}")
+            if self.snapshots["to"] < self.snapshots["from"] or int(self.snapshots.get("every", 1)) < 1:
+                raise ValueError("output.snapshots: needs from <= to and every >= 1")
+
+    def times(self, time: "Time") -> list:
+        """The snapshot times [s]: the list as given, or every `every`-th step of [from, to]."""
+        s = self.snapshots
+        if not isinstance(s, dict):
+            return [float(t) for t in s]
+        first = round((s["from"] - time.t0) / time.dt)
+        last = round((s["to"] - time.t0) / time.dt)
+        return [time.t0 + k * time.dt for k in range(first, last + 1, int(s.get("every", 1)))]
 
 
 @dataclass(frozen=True)

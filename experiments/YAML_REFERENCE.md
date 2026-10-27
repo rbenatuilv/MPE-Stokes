@@ -371,7 +371,7 @@ Everything about what is saved. All positions are in m. All results are in SI.
 | `lines` | `{}` | named segments: `{name: {from: [...], to: [...], n: 101}}` (`n` defaults to 101) |
 | `grid` | none | **2D only**: n means an n×n grid of points over the mesh bounding box |
 | `slices` | `{}` | **3D only**: named planes `{name: {normal: x\|y\|z, at: value, n: 81}}` |
-| `snapshots` | `[]` | times at which grid, slices, lines, the flux-jump measure and fields are recorded |
+| `snapshots` | `[]` | times at which grid, slices, lines, the flux-jump measure and fields are recorded: a list of times, or every step of a window, `{from: 2.0, to: 3.0}` (optional `every: n`: every n-th step) |
 | `fields` | `false` | `true` (= `[d, p, flux]`) or a list: full fields at the snapshots, to `<name>_fields.npz`. Needed by `biotx.compare` |
 | `boundary_flux` | `true` | fluid outflow ∫q·n through every named boundary, every step |
 | `paraview` | 0 | write ParaView `.bp` files every n steps (0 = never), in SI, to `<dir>/<name>/<q>.bp` |
@@ -385,6 +385,7 @@ Everything about what is saved. All positions are in m. All results are in SI.
 | `flux` | Darcy flux q | m/s | both (biot2: −κ∇p; biot3: ∂w/∂t) |
 | `velocity` | solid velocity ∂d/∂t | m/s | both |
 | `w` | relative fluid displacement | m | biot3 |
+| `cflux` | conservative Darcy flux: the velocity over the last step whose flow through every facet is the solver's (H(div), `biotx.flux`). The one to give a transport equation | m/s | both |
 
 Grid, slices and lines record the quantities in `series` together with `flux` and `p`. ParaView writes the same set plus `d`.
 
@@ -393,6 +394,12 @@ Grid, slices and lines record the quantities in `series` together with `flux` an
 - **Snapshot times** are matched to the nearest time step within dt/2. A snapshot with no step that
   close is skipped. `snap_t` stores the times actually recorded. `t0` can be a snapshot (the initial
   state).
+- **A snapshot window applies to every snapshot output.** Grid, slices and lines are then also recorded at
+  every step of the window. To save only fields, leave those out (e.g. `--set output.grid=null`).
+- **`cflux`** is computed only if it is asked for, in `series` or `fields`. It is the velocity **over** the
+  step that ends at the recorded time, so it is zero at `t0`. In the fields file it is stored exactly,
+  as a DG field of its polynomial degree. To average it over a period, save every step of the window and
+  use `biotx.load_fields(path).average("cflux", t_from, t_to)`.
 - Points outside the mesh, such as grid corners outside a disc, give **NaN**.
 - For a slice, `reshape(n, n)` gives `[i_b, i_a]`, where (a, b) are the two in-plane axes in xyz order. For example,
   `normal: z` gives (a, b) = (x, y).
@@ -404,6 +411,7 @@ Grid, slices and lines record the quantities in `series` together with `flux` an
 | `t` | (nt,) | every step, including t0 |
 | `probe_<q>` | (nt, nprobes[, dim]) | every step |
 | `bflux_<boundary>` | (nt,) | every step. m²/s per unit depth in 2D, m³/s in 3D. Positive means outflow |
+| `cbflux_<boundary>` | (nt,) | the same with `cflux` (when it is recorded): exactly the solver's boundary flow over each step. The raw `bflux` can be off by several % (8 % at the cavity of the annulus, 2F) |
 | `snap_t` | (nsnap,) | snapshots |
 | `grid_<q>` | (nsnap, n², [dim]) | snapshots (2D) |
 | `slice_<name>_<q>` | (nsnap, n², [dim]) | snapshots (3D) |
