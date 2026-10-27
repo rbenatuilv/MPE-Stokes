@@ -1,4 +1,4 @@
-"""Three-field Biot model (Morasca 2025): solid displacement d, filtration displacement w,
+"""Three-field Biot model: solid displacement d, filtration displacement w,
 pore pressure p. w is the relative fluid displacement phi (u_fluid - u_solid), so its time
 derivative IS the Darcy flux:
     q = w_t                       (an unknown of the system, H(div)-like: [[w.n]] penalised)
