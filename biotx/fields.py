@@ -1,7 +1,7 @@
-"""Full fields at the snapshots, saved so that finished runs can be compared afterwards.
+"""Full fields at the snapshots, saved so that finished runs can be compared or post-processed afterwards.
 
     output:
-      fields: true              # d, p, flux (or a list: [d, p, flux, w, velocity])
+      fields: true              # d, p, flux (or a list: [d, p, flux, cflux, w, velocity])
                                 # -> <name>_fields.npz next to <name>.npz
 
 The file holds the mesh (coordinates in m) and, for each quantity, the DG degrees of freedom
@@ -11,6 +11,10 @@ Functions on any number of ranks:
 
     fl = load_fields("results/annulus_biot2_fields.npz")
     p = fl.function("p", 0)     # Function on fl.mesh (SI coordinates) at fl.snap_t[0], in Pa
+    q = fl.average("cflux", 2.0, 3.0)   # time average over (2, 3] s (cflux saved at every step)
+
+cflux is a Raviart-Thomas field; it is stored in DG of its polynomial degree, which contains it, so
+the stored field is exact and its normal component stays continuous across facets (to round-off).
 
 The cells are written in their original (input) order and keep their vertex order, so the
 cell dofs of the rebuilt mesh are the ones written (a DG element has no dof permutations).
@@ -47,7 +51,7 @@ class FieldWriter:
                               "cells": np.searchsorted(ids, np.concatenate([p[2] for p in parts])),
                               "cell": mesh.topology.cell_name(), "gdeg": cmap.degree,
                               "gvariant": int(cmap.variant)}
-        self.meta, self.data, self.t = {}, {n: [] for n in self.names}, []
+        self.meta, self.data, self.t, self._dg = {}, {n: [] for n in self.names}, [], {}
 
     def __call__(self, model=None):
         m = model or self.model
@@ -55,10 +59,15 @@ class FieldWriter:
         self.t.append(m.time)
         for name in self.names:
             f, fac = m.quantity(name)
+            if not f.function_space.ufl_element().discontinuous:     # cflux (RT): its exact DG copy
+                if name not in self._dg:
+                    from biotx.post import dg_space
+                    self._dg[name] = dolfinx.fem.Function(dg_space(f.function_space))
+                from biotx.post import copy_to
+                copy_to(self._dg[name], f)
+                f = self._dg[name]
             V = f.function_space
             el, bs = V.ufl_element(), V.dofmap.bs
-            if not el.discontinuous:
-                raise ValueError(f"fields: '{name}' is not a DG field")
             self.meta[name] = (el.degree, V.value_shape)
             nloc = m.mesh.topology.index_map(m.mesh.topology.dim).size_local
             vals = f.x.array.reshape(-1, bs)[V.dofmap.list[:nloc]].reshape(nloc, -1) * fac
@@ -120,12 +129,25 @@ class Fields:
 
     def function(self, name, i):
         """The quantity `name` at snapshot i, as a new Function (SI)."""
+        return self._function(name, lambda data: data[i])
+
+    def average(self, name, t_from, t_to):
+        """The mean of `name` over the snapshots with t_from < t <= t_to, as a new Function (SI).
+        For cflux saved at every step of a window, the snapshot at t is the velocity over the step
+        that ends at t, so this is exactly its time average over [t_from, t_to]."""
+        tol = 1e-9 * max(1.0, abs(t_to))
+        sel = (self.snap_t > t_from + tol) & (self.snap_t <= t_to + tol)
+        if not sel.any():
+            raise ValueError(f"average: no snapshot in ({t_from}, {t_to}]")
+        return self._function(name, lambda data: data[sel].mean(axis=0))
+
+    def _function(self, name, pick):
         V = self.space(name)
         parts = None
         if self.comm.rank == 0:
             if name not in self._cache:
                 self._cache = {name: self._file[name]}            # keep one quantity in memory
-            vals = self._cache[name][i]
+            vals = pick(self._cache[name])
             parts = [vals[o] for o in self._orig]
         mine = self.comm.scatter(parts)
         u = dolfinx.fem.Function(V, name=name)
