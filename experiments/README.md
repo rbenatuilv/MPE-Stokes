@@ -151,7 +151,7 @@ The manufactured studies give an `exact:` solution. The sources, every boundary 
 
 A conditioning study measures cond₂ = σ_max/σ_min of the step matrix for each value of one swept
 key (raw, Jacobi- and Schur-scaled), run with `python -m biotx.conditioning`. Every key is in
-[`YAML_REFERENCE.md`](YAML_REFERENCE.md) §16. `experiments/conditioning/` has six studies, on the
+[`YAML_REFERENCE.md`](YAML_REFERENCE.md) §16. `experiments/conditioning/` has nine studies, on the
 annulus with the brain parameters:
 
 | file | sweep |
@@ -159,12 +159,50 @@ annulus with the brain parameters:
 | `annulus_biot2_h.yaml`, `annulus_biot3_h.yaml` | mesh size h = 4, 2, 1, 0.5 mm, at dt = 10 ms |
 | `annulus_biot2_h_dt2.5ms.yaml`, `annulus_biot3_h_dt2.5ms.yaml` | the same, at dt = 2.5 ms |
 | `annulus_biot2_dt.yaml`, `annulus_biot3_dt.yaml` | time step dt = 40 ms to 2.5 ms, at h = 0.5 mm |
+| `annulus_biot2_K.yaml`, `annulus_biot3_K.yaml` | permeability K = 1.57e-9 to 1.57e-13 m², at h = 0.5 mm |
+| `annulus_biot2_zeta.yaml` | Darcy penalty zeta = 1 to 1000 (biot2), at h = 0.5 mm |
 
 ```bash
 python -m biotx.conditioning experiments/conditioning/annulus_biot2_h.yaml
 ```
 
 `conditioning.ipynb` shows them all, in tables and figures, with a reading of the results.
+
+## Fake fluid of the velocity field
+
+`experiments/balance/` does cell-by-cell fluid bookkeeping. In every cell and every step, the fluid
+the cell gained must equal what came in through its walls minus what went out. The solver's own wall
+flows satisfy this exactly. The velocity field a transport equation would receive does not quite,
+and the leftover is fake fluid, which would become fake solute. The formulas are in the docstring of
+`balance.py`.
+
+```bash
+cd experiments/balance
+python balance.py ../annulus_biot2.yaml --set geometry.h=5.0e-4 --name annulus_biot2_0.5mm
+```
+
+`balance.ipynb` explains the idea, shows one cell's books, and compares the end-of-step,
+step-average and reconstructed (`biotx.flux`, H(div)) velocities of both models. Its appendix covers refinement, the heartbeat average, the
+Darcy penalty, the global balance and the wall jumps.
+
+## The conservative velocity (`cflux`), for a transport equation
+
+The raw `flux` is not mass-conservative cell by cell (see the next section). `cflux` is: its flow through
+every facet is the solver's own. Ask for it like any other quantity, and save every step of one period
+to replay or average it afterwards:
+
+```bash
+python -m biotx.run experiments/annulus_biot2.yaml --set 'output.fields=[p, cflux]' \
+    --set 'output.snapshots={from: 2.0, to: 3.0}' --set output.grid=null
+```
+
+```python
+fl = biotx.load_fields("experiments/results/annulus_biot2_fields.npz")
+q_t = fl.function("cflux", i)          # the velocity over the step ending at fl.snap_t[i] (m/s)
+q_bar = fl.average("cflux", 2.0, 3.0)  # its time average over the period (Morasca's choice)
+```
+
+`cbflux_<boundary>` in the results is then the exact flow through each boundary.
 
 ## When the YAML is not enough: the Python API
 
