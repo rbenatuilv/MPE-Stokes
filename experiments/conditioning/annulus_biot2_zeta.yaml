@@ -1,0 +1,14 @@
+# Condition number of the biot2 step matrix against the Darcy penalty zeta, on the mesh of the
+# experiment (h = 0.5 mm, dt = 10 ms). The penalty is zeta * max(kappa*, 1) * k^2 / h on pressure
+# jumps; with the brain kappa* = 6.7e-5 it is about 1.5e4 times the consistent choice
+# zeta * kappa* * k^2 / h. sigma_min of biot2 lives on p, so this shows how much the pressure block,
+# and with it cond, is set by the penalty. (The penalty also enters the numerical flux that the
+# H(div) reconstruction of item 1 will use.)
+#
+#   python -m biotx.conditioning experiments/conditioning/annulus_biot2_zeta.yaml
+
+base: ../annulus_biot2.yaml
+
+conditioning:
+  sweep: {discretization.zeta: [1.0, 3.0, 10.0, 30.0, 100.0, 1000.0]}
+  scaling: [raw, jacobi, schur]
