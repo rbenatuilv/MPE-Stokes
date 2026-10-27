@@ -1,10 +1,15 @@
-# Two-field Biot (d, p) on a concentric annulus.
-# A fluid-filled cavity (radius 3 mm) inside a poroelastic ring (outer radius 1 cm). The cavity
-# pressure pc(t) pulses once per second, pushing on both the pore fluid and the solid; the outer
-# wall is fixed and drained. The geometry and loads are symmetric about the centre, so the
-# solution is radial: the probe and the radial line describe it fully.
+# Two-field Biot (d, p) on an annulus with an off-centre hole.
+# A fluid-filled cavity (radius 2.5 mm, centred at x = 3 mm) inside a poroelastic disc (radius 1 cm),
+# so the tissue is thick on the left (10.5 mm, x < 0.5 mm) and thin on the right (4.5 mm, x > 5.5 mm).
+# The cavity pressure pc(t) pulses once per second, pushing on both the pore fluid and the solid;
+# the outer wall is fixed and drained.
 #
-#   python -m biotx.run experiments/annulus_biot2.yaml
+# This file is the PROBLEM only: it has no `output` section. A run adds what it wants to record,
+# from a script or from the command line, e.g.
+#
+#   exp = biotx.load("experiments/annulus_biot2.yaml", {"output.fields": ["p", "cflux"]})
+#   biotx.simulate(exp)
+#   python -m biotx.run experiments/annulus_biot2.yaml --set 'output.fields=[p, cflux]'
 #
 # Everything is in SI. The scales only set the non-dimensional problem that is solved.
 
@@ -12,7 +17,7 @@ model: biot2
 
 scales: {L0: 1.0e-2, T0: 1.0, P0: 1500.0}           # m, s, Pa
 
-material:                                            # brain tissue (Morasca 2025, Table 3)
+material:                                            # brain tissue
   mu: 1500.0          # Pa
   lambda: 11567.0     # Pa
   alpha: 0.49
@@ -24,7 +29,7 @@ material:                                            # brain tissue (Morasca 202
 geometry:
   shape: annulus
   radius: 1.0e-2                                     # outer circle, centred at the origin
-  inner: {center: [0.0, 0.0], radius: 3.0e-3}
+  inner: {center: [3.0e-3, 0.0], radius: 2.5e-3}       # off-centre: thick side left, thin side right
   h: 5.0e-4
   names: {inner: cavity, outer: wall}
 
@@ -42,13 +47,3 @@ boundaries:
 discretization: {deg: 2}                             # P2/P2, penalties eta = zeta = 10
 
 time: {T: 3.0, dt: 0.01, theta: 0.5}                 # Crank-Nicolson for the pressure
-
-output:
-  series: [p, flux, d]                               # at the probe, every step
-  probes:
-    mid: [6.5e-3, 0.0]                               # halfway through the ring
-  lines:
-    radial: {from: [3.01e-3, 0.0], to: [9.99e-3, 0.0], n: 201}   # cavity -> wall
-  grid: 81
-  snapshots: [2.25, 2.5, 2.75, 3.0]                  # four phases of the third cycle
-  fields: true                                       # full fields, for biotx.compare
