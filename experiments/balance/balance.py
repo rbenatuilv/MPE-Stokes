@@ -18,7 +18,7 @@ balance. What is left over is fluid that q invents or destroys in K:
 In the transport equation dc/dt + div(q c) - mu Lap c = f, fake_K acts as a fake solute source.
 
 Velocities tested (what a transport equation would receive):
-    end   end-of-step velocity    biot2: -kappa grad p^{n+1};   biot3: w_t^{n+1} (Morasca's choice)
+    end   end-of-step velocity    biot2: -kappa grad p^{n+1};   biot3: w_t^{n+1} (the Newmark velocity)
     avg   step-average velocity   biot2: th q^{n+1} + (1 - th) q^n;   biot3: (w^{n+1} - w^n) / dt
     rec   reconstructed velocity  biot2, biot3: the H(div) field of biotx.flux, whose wall flows are the
                                   solver's (expected: fake fluid at round-off)
@@ -35,8 +35,8 @@ Saved, in SI (m^2/s per unit depth for the flows, 1/s for rates):
                  drift80 = 80 s * max_K |fake_K| / |K| (how much a unit concentration would drift in the
                  worst cell over 80 s if nothing else moved it); appendix: global = sum fake, jump =
                  ||[[q.n]]|| / ||{q}.n|| on interior walls; solver_check = max |gained + wall (solver)| / max throughput
-    maps         gained, wall_solver, wall_end, wall_avg, wall_rec, throughput per cell at the snapshot times
-    period       the same six, averaged over the last period (the averaged velocity Morasca used)
+    maps         gained, wall_solver, wall_end, wall_avg, wall_rec, throughput per cell at MAP_TIMES
+    period       the same six, averaged over the last period (the period-averaged velocity)
 throughput_K = int_{dK} |Fhat|, the fluid flowing through K.
 """
 import argparse
@@ -50,6 +50,7 @@ import yaml
 import biotx
 from biotx import flux
 
+MAP_TIMES = [2.25, 2.5, 2.75, 3.0]             # per-cell maps: four phases of the third cycle
 VELOCITIES = ("end", "avg", "rec")
 TERMS = ("gained", "wall_solver", "wall_end", "wall_avg", "wall_rec", "throughput")
 
@@ -100,13 +101,13 @@ class CellBooks:
 
 
 def run(path, overrides=None, name=None, period=1.0):
-    exp = biotx.load(path, overrides or {})                  # no Recorder: output.* only gives the map times
+    exp = biotx.load(path, overrides or {})                  # no Recorder: the YAML's output is not used
     model = biotx.make_model(exp)
     books = CellBooks(model)
     s, dim = exp.scales, model.mesh.geometry.dim
     flow_si = s.L0**dim / s.T0                               # a flow through a cell: volume per time
     volume = books.volume * s.L0**dim
-    snaps, T, dt = exp.output.times(exp.time), exp.time.T, exp.time.dt
+    snaps, T, dt = MAP_TIMES, exp.time.T, exp.time.dt
 
     per_step = {"t": [], "solver_check": []}
     for k in VELOCITIES:
