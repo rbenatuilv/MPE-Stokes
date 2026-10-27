@@ -1,0 +1,13 @@
+# Condition number of the biot2 step matrix against the permeability K, on the mesh of the
+# experiment (h = 0.5 mm, dt = 10 ms), two decades on each side of the brain value 1.57e-11 m^2.
+# Low permeability is the classic regime where Biot discretizations lose robustness.
+# biot2: the Darcy penalty uses max(kappa*, 1) = 1 for every K here, so only the Darcy stiffness
+# kappa* changes; expect a weak dependence.
+#
+#   python -m biotx.conditioning experiments/conditioning/annulus_biot2_K.yaml
+
+base: ../annulus_biot2.yaml
+
+conditioning:
+  sweep: {material.K: [1.57e-9, 1.57e-10, 1.57e-11, 1.57e-12, 1.57e-13]}
+  scaling: [raw, jacobi, schur]
