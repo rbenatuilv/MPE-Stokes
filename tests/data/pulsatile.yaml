@@ -10,7 +10,7 @@ model: biot2
 
 scales: {L0: 1.0e-2, T0: 1.0, P0: 1500.0}          # m, s, Pa
 
-material:                                           # Morasca (2025), Table 3
+material:                                           # brain tissue
   mu: 1500.0          # Pa
   lambda: 11567.0     # Pa
   alpha: 0.49
