@@ -2,28 +2,13 @@
 
     python -m biotx.convergence verification/convergence/mms_biot2_space.yaml [--set k=v]
 
-A study is an experiment YAML with a `convergence:` section. Three kinds:
+A study is an experiment YAML with a `convergence:` section (its keys: docs/YAML_REFERENCE.md,
+section 15). Three kinds:
 
-    convergence:                  # 1. space: manufactured solution (`exact:`), meshes refined
-      study: space
-      n: [8, 16, 32, 64]          #    cells per side (rectangle, box), or
-      h: [4.0e-3, 2.0e-3, ...]    #    target cell sizes (any shape)
-
-    convergence:                  # 2. time: manufactured solution, time step refined on a
-      study: time                 #    fixed mesh (take `exact` polynomial of degree <= deg in
-      dt: [0.1, 0.05, 0.025]      #    space: then the mesh adds no error)
-
-    base: ../annulus_biot2.yaml   # 3. self: no exact solution; uniform refinement of the base
-    convergence:                  #    mesh, differences between successive levels
-      study: self
-      levels: 4                   #    base mesh + 3 refinements (nested meshes)
-      refine_dt: false            #    true: halve dt with h
-
-Common keys (all optional):
-      norms: [L2, H1]             # L2 norm and broken H1 seminorm |.|_{H1} = ||grad_h .||
-      fields: [d, p, flux]        # default: the model's unknowns and the flux (flux: L2 only)
-      at: final                   # space/time: final (t = T) or max (over all time steps);
-                                  # self: final or a list of times (maximum over them)
+    space   manufactured solution (`exact:`), the mesh refined (n cells per side, or target h)
+    time    manufactured solution, the time step refined on a fixed mesh (take `exact` polynomial
+            of degree <= deg in space: then the mesh adds no error)
+    self    no exact solution: uniform refinement of a base mesh, differences between levels
 
 Errors are in SI, integrated with quadrature degree deg + 4. The observed order between two
 levels is log(e_i / e_{i+1}) / log(s_i / s_{i+1}), s = h (space, self) or dt (time). For

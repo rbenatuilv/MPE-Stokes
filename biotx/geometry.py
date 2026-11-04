@@ -1,43 +1,15 @@
 """Meshes with named boundaries. Dimensions in the YAML are in SI; the mesh returned is
 already non-dimensional (coordinates divided by L0).
 
-    geometry:
-      shape: rectangle          # boundaries: left, right, bottom, top
-      corners: [[0, 0], [1, 1]]
-      n: [16, 16]               # cells per side (or h: target cell size)
+The shapes and the boundaries each one names (the keys of each shape are SHAPE_KEYS below; what
+they mean is in docs/YAML_REFERENCE.md, section 5):
 
-      shape: box                # 3D; boundaries: left, right (x), front, back (y), bottom, top (z)
-      corners: [[0, 0, 0], [1, 1, 1]]
-      n: [8, 8, 8]              # (or h)
+    rectangle   left, right, bottom, top           box     left, right (x), front, back (y), bottom, top (z)
+    disc        outer                              ball    outer
+    annulus     outer, inner (hole off-centre ok)  shell   outer, inner (the 3D annulus)
+    gmsh        the named physical groups of a .msh file (2D or 3D)
 
-      shape: disc               # boundaries: outer
-      center: [0, 0]
-      radius: 1.0
-      h: 0.05
-
-      shape: annulus            # boundaries: outer, inner (inner circle may be off-centre)
-      center: [0, 0]
-      radius: 1.0
-      inner: {center: [0.3, 0], radius: 0.25}
-      h: 0.05
-
-      shape: ball               # 3D; boundaries: outer
-      center: [0, 0, 0]
-      radius: 1.0
-      h: 0.1
-
-      shape: shell              # 3D annulus: boundaries outer, inner (inner sphere may be off-centre)
-      center: [0, 0, 0]
-      radius: 1.0
-      inner: {center: [0.3, 0, 0], radius: 0.25}
-      h: 0.1
-
-      shape: gmsh               # any .msh file; boundaries = its named physical groups
-      file: brain.msh           # (relative to the YAML file)
-      dim: 2                    # 3 for a volume mesh
-      tags: {ventricle: 1}      # optional: names for unnamed physical groups
-
-      names: {inner: ventricle, outer: pia}   # optional, any shape: rename boundaries
+Any shape takes `names: {old: new}` to rename its boundaries.
 """
 from dataclasses import dataclass
 from pathlib import Path

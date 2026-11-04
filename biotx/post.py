@@ -11,19 +11,9 @@ Quantities (model.quantity(name)): "d", "p", "flux" (Darcy flux q, the raw field
 three-field model. Asking for cflux in `series` or `fields` makes the Recorder start the
 reconstruction, so create the Recorder before the first step.
 
-Recorded every step
-    t                         times
-    probe_<quantity>          (nsteps, nprobes[, dim]) values at the probes, for `series`
-    bflux_<boundary>          integral of q.n over each named boundary [m^2/s per unit depth
-                              in 2D, m^3/s in 3D]: positive = fluid leaving the tissue
-    cbflux_<boundary>         the same with cflux (when cflux is recorded): exactly the solver's
-                              boundary flow over the last step
-Recorded at the `snapshots` times (a list, or every step of a window {from, to, every})
-    snap_t                    times actually hit (nearest step)
-    grid_<quantity>           (nsnap, n*n[, dim]) 2D: on an n x n grid over the bounding box
-    slice_<name>_<quantity>   (nsnap, n*n, [dim]) 3D: on an n x n grid in a plane (see slice_points)
-    line_<name>_<quantity>    (nsnap, npoints[, dim]) along each line
-    jump                      ||[[q.n]]|| / ||{q}.n|| on interior facets (0 = conservative flux)
+Recorded every step: the probes (`series`) and the flow through every named boundary (bflux_<name>,
+and cbflux_<name> with cflux); at the `snapshots`: grids, slices, lines, the normal jump of q and the
+full fields. The arrays saved and their shapes are listed in docs/YAML_REFERENCE.md, section 12.
 Points outside the mesh give NaN. With output.fields, the full fields at the snapshots also go
 to <name>_fields.npz (see fields.py; compare runs with compare.py).
 """

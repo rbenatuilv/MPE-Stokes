@@ -18,6 +18,7 @@ the stored field is exact and its normal component stays continuous across facet
 
 The cells are written in their original (input) order and keep their vertex order, so the
 cell dofs of the rebuilt mesh are the ones written (a DG element has no dof permutations).
+The `output` keys are in docs/YAML_REFERENCE.md, section 12.
 """
 from pathlib import Path
 

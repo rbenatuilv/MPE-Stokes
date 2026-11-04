@@ -3,14 +3,10 @@ one parameter of the experiment.
 
     python -m biotx.conditioning verification/conditioning/annulus_biot2_h.yaml [--set k=v]
 
-A study is an experiment YAML (usually a `base:` one) with a `conditioning:` section:
-
-    base: ../../applications/brain_annulus/annulus_biot2.yaml
-    conditioning:
-      sweep: {geometry.h: [4.0e-3, 2.0e-3, 1.0e-3]}   # ONE dotted key of the YAML and its values
-      scaling: [raw, jacobi, schur]   # raw: A;  jacobi: |D|^-1/2 A |D|^-1/2, D = diag(A);
-                                      # schur: as jacobi, but p scaled by its Schur diagonal
-      dense_check: false              # also the dense numpy SVD (small systems only)
+A study is an experiment YAML (usually a `base:` one) with a `conditioning:` section: one swept
+key and its values, the scalings (raw: A;  jacobi: |D|^-1/2 A |D|^-1/2, D = diag(A);  schur: as
+jacobi, but p scaled by its Schur diagonal) and an optional dense check. The keys are in
+docs/YAML_REFERENCE.md, section 16.
 
 The matrix is the one of a regular time step (biot2 with a Rannacher start: the matrix of the
 requested theta, not of the start-up steps). A is not symmetric (the couplings are
