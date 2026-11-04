@@ -45,6 +45,7 @@ from pathlib import Path
 import dolfinx
 import dolfinx.io.gmsh
 import numpy as np
+import ufl
 from mpi4py import MPI
 
 
@@ -237,3 +238,12 @@ def cell_size(mesh) -> float:
     h = max((np.linalg.norm(X[:, i] - X[:, j], axis=1).max(initial=0.0)
              for i in range(X.shape[1]) for j in range(i)), default=0.0)
     return mesh.comm.allreduce(h, op=MPI.MAX)
+
+
+def mean_size(mesh) -> float:
+    """(|Omega| / ncells)^(1/dim), in the mesh's own units: follows a refinement even when the
+    largest diameter of an unstructured mesh hardly does."""
+    tdim = mesh.topology.dim
+    one = dolfinx.fem.form(dolfinx.fem.Constant(mesh, 1.0) * ufl.dx(mesh))
+    vol = mesh.comm.allreduce(dolfinx.fem.assemble_scalar(one), op=MPI.SUM)
+    return (vol / mesh.topology.index_map(tdim).size_global) ** (1 / tdim)

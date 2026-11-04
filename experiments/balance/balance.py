@@ -49,6 +49,7 @@ import yaml
 
 import biotx
 from biotx import flux
+from biotx.util import parse_set
 
 MAP_TIMES = [2.25, 2.5, 2.75, 3.0]             # per-cell maps: four phases of the third cycle
 VELOCITIES = ("end", "avg", "rec")
@@ -157,8 +158,7 @@ def main(argv=None):
     ap.add_argument("--set", action="append", default=[], metavar="KEY=VALUE")
     ap.add_argument("--name")
     a = ap.parse_args(argv)
-    overrides = {k: yaml.safe_load(v) for k, v in (s.split("=", 1) for s in a.set)}
-    print("saved", run(a.yaml, overrides, a.name))
+    print("saved", run(a.yaml, parse_set(a.set), a.name))
 
 
 if __name__ == "__main__":

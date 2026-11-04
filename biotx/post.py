@@ -37,6 +37,7 @@ from mpi4py import MPI
 
 from biotx.fields import DEFAULT as DEFAULT_FIELDS
 from biotx.fields import FieldWriter, copy_to, dg_space
+from biotx.util import integrate, load_npz
 
 
 class Points:
@@ -118,10 +119,6 @@ def slice_points(mesh, spec, L0):
     return pts
 
 
-def _scalar(mesh, form):
-    return mesh.comm.allreduce(dolfinx.fem.assemble_scalar(form), op=MPI.SUM)
-
-
 class NormalJump:
     """||[[q.n]]|| / ||{q}.n|| over the interior facets: 0 for a mass-conserving (H(div))
     flux. Two-field q = -kappa grad p jumps; three-field q = w_t only weakly."""
@@ -133,7 +130,7 @@ class NormalJump:
         self.mesh = model.mesh
 
     def __call__(self):
-        num, den = _scalar(self.mesh, self.num), _scalar(self.mesh, self.den)
+        num, den = integrate(self.num, self.mesh.comm), integrate(self.den, self.mesh.comm)
         return float(np.sqrt(num / den)) if den > 0 else 0.0
 
 
@@ -151,7 +148,7 @@ class BoundaryFlux:
         self.mesh = model.mesh
 
     def __call__(self):
-        return {name: self.factor * _scalar(self.mesh, f) for name, f in self.forms.items()}
+        return {name: self.factor * integrate(f, self.mesh.comm) for name, f in self.forms.items()}
 
 
 class Recorder:
@@ -272,7 +269,4 @@ class Recorder:
 
 def load_results(path) -> dict:
     """The arrays of a saved run, with 'experiment' parsed back into a dict."""
-    with np.load(path) as f:
-        out = {k: f[k] for k in f.files}
-    out["experiment"] = yaml.safe_load(str(out["experiment"]))
-    return out
+    return load_npz(path)

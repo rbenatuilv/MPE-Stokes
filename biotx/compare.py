@@ -25,16 +25,13 @@ Boundary fluxes (from the .npz, every step):
 import argparse
 from pathlib import Path
 
-import basix
-import basix.ufl
-import dolfinx
 import numpy as np
-import ufl
 from mpi4py import MPI
 
-from biotx.fields import Fields
+from biotx.fields import DGDifference, Fields
 from biotx.geometry import cell_size
 from biotx.post import load_results
+from biotx.util import format_table
 
 
 def fields_path(path):
@@ -51,25 +48,10 @@ class FieldDifference:
         Va, Vr = run.space(name), ref.space(name)
         if Va.value_shape != Vr.value_shape:
             raise ValueError(f"'{name}' has shape {Va.value_shape} in the run, {Vr.value_shape} in the reference")
-        deg = max(Va.ufl_element().degree, Vr.ufl_element().degree)
-        el = basix.ufl.element("DG", ref.mesh.basix_cell(), deg, shape=Vr.value_shape,
-                               lagrange_variant=basix.LagrangeVariant.gl_warped)
-        Vt = dolfinx.fem.functionspace(ref.mesh, el)
-        self.a, self.r = dolfinx.fem.Function(Vt), dolfinx.fem.Function(Vt)
-        nloc = ref.mesh.topology.index_map(ref.mesh.topology.dim).size_local
-        self.cells = np.arange(nloc, dtype=np.int32)
-        self.data = dolfinx.fem.create_interpolation_data(Vt, Va, self.cells, padding=cell_size(run.mesh))
-        dx = ufl.dx(ref.mesh)
-        self.num = dolfinx.fem.form(ufl.inner(self.a - self.r, self.a - self.r) * dx)
-        self.den = dolfinx.fem.form(ufl.inner(self.r, self.r) * dx)
+        self.diff = DGDifference(Va, Vr, padding=cell_size(run.mesh), relative=True)
 
     def __call__(self, i_run, i_ref):
-        self.a.interpolate_nonmatching(self.run.function(self.name, i_run), self.cells, self.data)
-        self.r.interpolate(self.ref.function(self.name, i_ref))
-        comm = self.ref.mesh.comm
-        num = comm.allreduce(dolfinx.fem.assemble_scalar(self.num), op=MPI.SUM)
-        den = comm.allreduce(dolfinx.fem.assemble_scalar(self.den), op=MPI.SUM)
-        return float(np.sqrt(num / den)) if den > 0 else float(np.sqrt(num))
+        return self.diff(self.run.function(self.name, i_run), self.ref.function(self.name, i_ref))["L2"]
 
 
 def _dt(experiment):
@@ -123,14 +105,12 @@ def table(errors) -> str:
     bcols = []
     for res in errors.values():
         bcols += [k for k in res["flux"] if k not in bcols]
-    head = ["run"] + cols + [f"Q_{b}" for b in bcols]
-    rows = [head]
+    rows = [["run"] + cols + [f"Q_{b}" for b in bcols]]
     for name, res in errors.items():
         f = res["fields"]
         rows.append([name] + [f"{f[c].max():.3e}" if c in f and len(f[c]) else "-" for c in cols]
                     + [f"{res['flux'][b]:.3e}" if b in res["flux"] else "-" for b in bcols])
-    w = [max(len(r[i]) for r in rows) for i in range(len(head))]
-    return "\n".join("  ".join(c.ljust(wi) for c, wi in zip(r, w)) for r in rows)
+    return format_table(rows, align="left")
 
 
 def main(argv=None):

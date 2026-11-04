@@ -29,6 +29,8 @@ import ufl
 import yaml
 from mpi4py import MPI
 
+from biotx.util import integrate
+
 DEFAULT = ["d", "p", "flux"]
 
 
@@ -49,6 +51,48 @@ def copy_to(g, f, factor=1.0):
         g.interpolate(f)
         g.x.array[:] *= factor
     g.x.scatter_forward()
+
+
+def norm_form(e, norm, L0, dx):
+    """The squared L2 norm or broken H1 seminorm of e (non-dimensional mesh) in SI: x = L0 x*."""
+    dim = dx.ufl_domain().geometric_dimension
+    if norm == "L2":
+        return L0**dim * ufl.inner(e, e) * dx
+    return L0**(dim - 2) * ufl.inner(ufl.grad(e), ufl.grad(e)) * dx
+
+
+class DGDifference:
+    """||a - b|| (norms: L2 and/or the broken H1 seminorm) of a in V_from and b in V_to, on the
+    mesh of V_to. Both are interpolated into DG on that mesh with interior (Gauss-Legendre) points,
+    so no point sits on a facet: b exactly, and a exactly too if the meshes match or are nested.
+    Otherwise a is sampled at those points; points just outside its mesh (curved boundaries)
+    are evaluated in the nearest cell within `padding`. relative: divided by ||b|| (if > 0)."""
+
+    def __init__(self, V_from, V_to, L0=1.0, norms=("L2",), qdeg=None, padding=1e-10, relative=False):
+        mesh = V_to.mesh
+        deg = max(V_from.ufl_element().degree, V_to.ufl_element().degree)
+        el = basix.ufl.element("DG", mesh.basix_cell(), deg, shape=V_to.value_shape,
+                               lagrange_variant=basix.LagrangeVariant.gl_warped)
+        Vt = dolfinx.fem.functionspace(mesh, el)
+        self.a, self.b = dolfinx.fem.Function(Vt), dolfinx.fem.Function(Vt)
+        nloc = mesh.topology.index_map(mesh.topology.dim).size_local
+        self.cells = np.arange(nloc, dtype=np.int32)
+        self.data = dolfinx.fem.create_interpolation_data(Vt, V_from, self.cells, padding=padding)
+        md = {} if qdeg is None else {"metadata": {"quadrature_degree": qdeg}}
+        dx = ufl.Measure("dx", domain=mesh, **md)
+        self.forms = {k: dolfinx.fem.form(norm_form(self.a - self.b, k, L0, dx)) for k in norms}
+        self.scales = {k: dolfinx.fem.form(norm_form(self.b, k, L0, dx)) for k in norms} if relative else None
+        self.comm = mesh.comm
+
+    def __call__(self, a, b) -> dict:
+        self.a.interpolate_nonmatching(a, self.cells, self.data)
+        self.b.interpolate(b)
+        out = {}
+        for k, f in self.forms.items():
+            num = integrate(f, self.comm)
+            den = integrate(self.scales[k], self.comm) if self.scales else 0.0
+            out[k] = float(np.sqrt(num / den)) if den > 0 else float(np.sqrt(num))
+        return out
 
 
 class FieldWriter:

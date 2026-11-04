@@ -34,20 +34,18 @@ the meshes are nested), and its order equals the order of the true error.
     res = cv.run(cv.load("experiments/convergence/mms_biot2_space.yaml"))
     print(res.table()); res.rates("p", "L2"); res.save()
 """
-import argparse
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
-import basix
-import basix.ufl
 import dolfinx
 import numpy as np
 import ufl
 import yaml
-from mpi4py import MPI
 
-from biotx import geometry
-from biotx.config import FIELDS, _override, from_dict, merge, read_study
+from biotx import geometry, study as _study
+from biotx.config import FIELDS
+from biotx.fields import DGDifference, norm_form
+from biotx.util import format_table, integrate, load_npz, ndofs
 
 STUDIES = ("space", "time", "self")
 NORMS = ("L2", "H1")
@@ -56,18 +54,6 @@ COMMON = {"study", "norms", "fields", "at"}
 
 
 # ---- the study description ---------------------------------------------------------------
-@dataclass
-class Study:
-    """An experiment tree plus its `convergence` section (validated)."""
-    raw: dict
-    name: str
-    root: Path = Path(".")
-    spec: dict = field(default_factory=dict)
-
-    def experiment(self, overrides=None):
-        return from_dict(_override(self.raw, overrides or {}), self.name, self.root)
-
-
 def _check(raw):
     spec = dict(raw.get("convergence") or {})
     kind = spec.get("study")
@@ -108,17 +94,20 @@ def _check(raw):
     return spec
 
 
+class Study(_study.Study):
+    """An experiment tree plus its `convergence` section (validated)."""
+    section = "convergence"
+    check = staticmethod(_check)
+
+
 def load(path, overrides=None) -> Study:
     """Read a study YAML (with an optional `base:` experiment it extends)."""
-    path = Path(path)
-    raw = _override(read_study(path), overrides or {})
-    return Study(raw, raw.get("output", {}).get("name") or path.stem, path.parent, _check(raw))
+    return Study.load(path, overrides)
 
 
 def study(exp, **spec) -> Study:
     """A Study from an Experiment and convergence keys, e.g. study(exp, study="time", dt=[...])."""
-    raw = merge(exp.raw, {"convergence": spec})
-    return Study(raw, exp.name, exp.root, _check(raw))
+    return Study.from_experiment(exp, **spec)
 
 
 # ---- error norms ---------------------------------------------------------------------------
@@ -126,7 +115,7 @@ class _Norms:
     """L2 and broken H1-seminorm errors (SI) of model quantities against the exact solution."""
 
     def __init__(self, model, fields, norms):
-        s, dim = model.exp.scales, model.mesh.geometry.dim
+        L0 = model.exp.scales.L0
         dx = ufl.Measure("dx", domain=model.mesh, metadata={"quadrature_degree": model.k + 4})
         self.model, self.forms = model, {}
         for name in fields:
@@ -135,16 +124,11 @@ class _Norms:
             for norm in norms:
                 if norm == "H1" and name == "flux":
                     continue
-                if norm == "L2":
-                    form = s.L0**dim * ufl.inner(e, e) * dx
-                else:
-                    form = s.L0**(dim - 2) * ufl.inner(ufl.grad(e), ufl.grad(e)) * dx
-                self.forms[(name, norm)] = dolfinx.fem.form(form)
+                self.forms[(name, norm)] = dolfinx.fem.form(norm_form(e, norm, L0, dx))
 
     def __call__(self):
         comm = self.model.mesh.comm
-        return {k: float(np.sqrt(comm.allreduce(dolfinx.fem.assemble_scalar(f), op=MPI.SUM)))
-                for k, f in self.forms.items()}
+        return {k: float(np.sqrt(integrate(f, comm))) for k, f in self.forms.items()}
 
 
 def _mms_errors(model, spec):
@@ -155,37 +139,6 @@ def _mms_errors(model, spec):
             for k, v in norms().items():
                 worst[k] = max(worst.get(k, 0.0), v)
     return worst if spec["at"] == "max" else norms()
-
-
-class _Difference:
-    """||u_fine - u_coarse|| (L2, broken H1 seminorm, SI) on the finer of two nested meshes.
-    Both are interpolated into DG on the fine mesh with interior (Gauss-Legendre) points, so
-    no point sits on a facet; for nested meshes both interpolations are exact."""
-
-    def __init__(self, V_coarse, V_fine, L0, norms, qdeg):
-        mesh = V_fine.mesh
-        deg = max(V_coarse.ufl_element().degree, V_fine.ufl_element().degree)
-        el = basix.ufl.element("DG", mesh.basix_cell(), deg, shape=V_fine.value_shape,
-                               lagrange_variant=basix.LagrangeVariant.gl_warped)
-        Vt = dolfinx.fem.functionspace(mesh, el)
-        self.c, self.f = dolfinx.fem.Function(Vt), dolfinx.fem.Function(Vt)
-        nloc = mesh.topology.index_map(mesh.topology.dim).size_local
-        self.cells = np.arange(nloc, dtype=np.int32)
-        self.data = dolfinx.fem.create_interpolation_data(Vt, V_coarse, self.cells, padding=1e-10)
-        dim, e = mesh.geometry.dim, self.f - self.c
-        dx = ufl.Measure("dx", domain=mesh, metadata={"quadrature_degree": qdeg})
-        self.forms = {}
-        for norm in norms:
-            form = (L0**dim * ufl.inner(e, e) * dx if norm == "L2"
-                    else L0**(dim - 2) * ufl.inner(ufl.grad(e), ufl.grad(e)) * dx)
-            self.forms[norm] = dolfinx.fem.form(form)
-        self.comm = mesh.comm
-
-    def __call__(self, coarse, fine):
-        self.c.interpolate_nonmatching(coarse, self.cells, self.data)
-        self.f.interpolate(fine)
-        return {k: float(np.sqrt(self.comm.allreduce(dolfinx.fem.assemble_scalar(f), op=MPI.SUM)))
-                for k, f in self.forms.items()}
 
 
 # ---- results --------------------------------------------------------------------------------
@@ -230,28 +183,19 @@ class Result:
                 r = self.rates(*k)
                 row += [f"{self.errors[k][i]:.3e}", f"{r[i - 1]:.2f}" if i > 0 else ""]
             rows.append(row)
-        w = [max(len(r[j]) for r in rows) for j in range(len(head))]
         title = {"space": "MMS, refinement in space", "time": "MMS, refinement in time",
                  "self": "self-convergence, e_i = ||u_i - u_i+1||"}[self.kind]
-        lines = [f"{self.name}: {self.model}, {title}"]
-        lines += ["  " + "  ".join(c.rjust(wj) for c, wj in zip(r, w)) for r in rows]
-        return "\n".join(lines)
+        return format_table(rows, f"{self.name}: {self.model}, {title}")
 
     def save(self, path=None):
         """Write the errors, rates and the study YAML to <root>/<output.dir>/<name>.npz."""
-        if MPI.COMM_WORLD.rank != 0:
-            return None
-        out = self.raw.get("output", {}).get("dir", "results")
-        path = Path(path) if path else Path(self.root) / out / f"{self.name}.npz"
-        path.parent.mkdir(parents=True, exist_ok=True)
         data = {"values": np.array(self.values, dtype=object if self.label == "n" else float),
                 "h": self.h, "dt": self.dt, "dofs": self.dofs,
                 "experiment": yaml.safe_dump(_plain(self.raw), sort_keys=False)}
         for (name, norm), e in self.errors.items():
             data[f"{name}_{norm}"] = np.asarray(e)
             data[f"rate_{name}_{norm}"] = self.rates(name, norm)
-        np.savez(path, **data)
-        return path
+        return _study.save_result(self.raw, self.root, self.name, data, path)
 
 
 def _plain(x):
@@ -264,20 +208,13 @@ def _plain(x):
 
 
 def load_result(path) -> dict:
-    with np.load(path, allow_pickle=True) as f:
-        out = {k: f[k] for k in f.files}
-    out["experiment"] = yaml.safe_load(str(out["experiment"]))
-    return out
+    return load_npz(path)
 
 
 # ---- the three studies -------------------------------------------------------------------
 def _make(exp, domain=None):
     from biotx import make_model
     return make_model(exp, domain)
-
-
-def _dofs(model):
-    return model.W.dofmap.index_map.size_global * model.W.dofmap.index_map_bs
 
 
 def _space(st):
@@ -293,7 +230,7 @@ def _space(st):
         for k, e in _mms_errors(model, spec).items():
             errs.setdefault(k, []).append(e)
         h.append(geometry.cell_size(model.mesh) * exp.scales.L0)
-        dofs.append(_dofs(model))
+        dofs.append(ndofs(model))
     return Result(st.name, "space", exp.model, label, values, np.array(h),
                   np.full(len(values), exp.time.dt), np.array(dofs), errs, st.raw, st.root)
 
@@ -310,7 +247,7 @@ def _time(st):
             errs.setdefault(k, []).append(e)
     h = geometry.cell_size(domain.mesh) * exp.scales.L0
     return Result(st.name, "time", exp.model, "dt", values, np.full(len(values), h),
-                  np.array(values), np.full(len(values), _dofs(model)), errs, st.raw, st.root)
+                  np.array(values), np.full(len(values), ndofs(model)), errs, st.raw, st.root)
 
 
 def _self(st):
@@ -342,14 +279,14 @@ def _self(st):
         states.append(snap)
         h.append(geometry.cell_size(domain.mesh) * exp.scales.L0)
         dts.append(dt)
-        dofs.append(_dofs(model))
+        dofs.append(ndofs(model))
     errs = {}
     qdeg = exp0.discretization.deg + 4
     for i in range(levels - 1):
         for name in spec["fields"]:
             norms = [n for n in spec["norms"] if not (n == "H1" and name == "flux")]
-            diff = _Difference(states[i][times[0]][name].function_space,
-                               states[i + 1][times[0]][name].function_space, exp0.scales.L0, norms, qdeg)
+            diff = DGDifference(states[i][times[0]][name].function_space,
+                                states[i + 1][times[0]][name].function_space, exp0.scales.L0, norms, qdeg)
             worst = {}
             for t in times:
                 for norm, v in diff(states[i][t][name], states[i + 1][t][name]).items():
@@ -366,17 +303,7 @@ def run(st: Study) -> Result:
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="Convergence study from a YAML file")
-    ap.add_argument("yaml")
-    ap.add_argument("--set", action="append", default=[], metavar="KEY=VALUE")
-    args = ap.parse_args(argv)
-    overrides = {k: yaml.safe_load(v) for k, v in (s.split("=", 1) for s in args.set)}
-    res = run(load(args.yaml, overrides))
-    path = res.save()
-    if MPI.COMM_WORLD.rank == 0:
-        print(res.table())
-        print(f"saved {path}")
-    return res
+    return _study.cli("Convergence study from a YAML file", load, run, argv)
 
 
 if __name__ == "__main__":

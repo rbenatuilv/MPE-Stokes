@@ -21,9 +21,9 @@ respect to x is ufl.grad / L0.
 import dolfinx
 import numpy as np
 import ufl
-from mpi4py import MPI
 
 from biotx.expressions import _expand
+from biotx.util import integrate
 
 
 class Manufactured:
@@ -88,12 +88,12 @@ class Manufactured:
         model, tc = self.model, self.model.exp.time
         form = dolfinx.fem.form(expr**2 * ds)
         size = dolfinx.fem.form(dolfinx.fem.Constant(model.mesh, 1.0) * ds)
-        area = model.mesh.comm.allreduce(dolfinx.fem.assemble_scalar(size), op=MPI.SUM)
+        area = integrate(size, model.mesh.comm)
         t_now = model.t.value.copy()
         try:
             for t in np.linspace(tc.t0, tc.T, samples):
                 model.t.value = t / model.exp.scales.T0
-                v = model.mesh.comm.allreduce(dolfinx.fem.assemble_scalar(form), op=MPI.SUM)
+                v = integrate(form, model.mesh.comm)
                 if v > 1e-20 * max(area, 1.0):
                     raise ValueError(f"exact solution: {what} is not zero (at t = {t:.3g} s)")
         finally:

@@ -15,6 +15,7 @@ from biotx.config import Experiment, load
 from biotx.fields import Fields, load_fields
 from biotx.geometry import build as build_geometry
 from biotx.post import Points, Recorder, load_results
+from biotx.util import ndofs
 
 MODELS = {"biot2": TwoField, "biot3": ThreeField}
 
@@ -38,8 +39,7 @@ def simulate(exp, verbose=True):
     model = make_model(exp)
     if talk:
         ncells = model.mesh.topology.index_map(model.mesh.topology.dim).size_global
-        ndofs = model.W.dofmap.index_map.size_global * model.W.dofmap.index_map_bs
-        print(f"{exp.name}: {exp.model}, {ncells} cells, {ndofs} dofs, {exp.time.nsteps} steps "
+        print(f"{exp.name}: {exp.model}, {ncells} cells, {ndofs(model)} dofs, {exp.time.nsteps} steps "
               f"(setup {time.perf_counter() - t0:.1f} s)", flush=True)
     every = max(1, exp.time.nsteps // 10)
 

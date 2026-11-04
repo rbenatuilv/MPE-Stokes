@@ -20,3 +20,4 @@ python -m pytest                                                # tests (about 1
 | `biotx/config.py`, `geometry.py`, `expressions.py` | YAML, meshes with named boundaries, formulas of x and t |
 | `biotx/post.py`, `fields.py` | outputs (probes, lines, grids, fields, ParaView), `load_results`, `load_fields` |
 | `biotx/mms.py`, `convergence.py`, `conditioning.py`, `compare.py` | manufactured solutions, convergence and condition-number studies, run comparison |
+| `biotx/study.py`, `util.py` | what the studies share (YAML section, saving, CLI); small helpers (integrals, tables, `--set`) |

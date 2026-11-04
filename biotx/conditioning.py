@@ -37,22 +37,19 @@ would use; jacobi under-scales p in biot3 (see docs/theory.md, Section 10).
     c = cn.condition(biotx.make_model(exp), "jacobi")      # Condition(smax, smin, cond, ...)
     res = cn.run(cn.load("study.yaml")); print(res.table()); res.save()
 """
-import argparse
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
-import dolfinx
 import numpy as np
-import ufl
 import yaml
 from mpi4py import MPI
 from petsc4py import PETSc
 from slepc4py import SLEPc
 
-from biotx import geometry
+from biotx import geometry, study as _study
 from biotx.common import make_ksp
-from biotx.config import _override, from_dict, merge, read_study
+from biotx.util import format_table, load_npz, ndofs
 
 SCALINGS = ("raw", "jacobi", "schur")
 KEYS = {"sweep", "scaling", "dense_check"}
@@ -223,26 +220,6 @@ def condition(model, scaling="raw", dense_check=False) -> Condition:
 
 
 # ---- studies -------------------------------------------------------------------------------
-@dataclass
-class Study:
-    """An experiment tree plus its validated `conditioning` section."""
-    raw: dict
-    name: str
-    root: Path = Path(".")
-    spec: dict = field(default_factory=dict)
-
-    @property
-    def key(self):
-        return next(iter(self.spec["sweep"]))
-
-    @property
-    def values(self):
-        return list(self.spec["sweep"][self.key])
-
-    def experiment(self, value):
-        return from_dict(_override(self.raw, {self.key: value}), self.name, self.root)
-
-
 def _check(raw):
     spec = dict(raw.get("conditioning") or {})
     unknown = set(spec) - KEYS
@@ -263,17 +240,32 @@ def _check(raw):
     return spec
 
 
+class Study(_study.Study):
+    """An experiment tree plus its validated `conditioning` section."""
+    section = "conditioning"
+    check = staticmethod(_check)
+
+    @property
+    def key(self):
+        return next(iter(self.spec["sweep"]))
+
+    @property
+    def values(self):
+        return list(self.spec["sweep"][self.key])
+
+    def experiment(self, value):
+        """The experiment at one value of the sweep."""
+        return super().experiment({self.key: value})
+
+
 def load(path, overrides=None) -> Study:
     """Read a study YAML (with an optional `base:` experiment it extends)."""
-    path = Path(path)
-    raw = _override(read_study(path), overrides or {})
-    return Study(raw, raw.get("output", {}).get("name") or path.stem, path.parent, _check(raw))
+    return Study.load(path, overrides)
 
 
 def study(exp, **spec) -> Study:
     """A Study from an Experiment and conditioning keys, e.g. study(exp, sweep={"time.dt": [...]})."""
-    raw = merge(exp.raw, {"conditioning": spec})
-    return Study(raw, exp.name, exp.root, _check(raw))
+    return Study.from_experiment(exp, **spec)
 
 
 @dataclass
@@ -330,18 +322,10 @@ class Result:
                 if c.dense is not None:
                     row += [f"{c.dense:.3e}"]
             rows.append(row)
-        w = [max(len(r[j]) for r in rows) for j in range(len(head))]
-        lines = [f"{self.name}: {self.model}, condition number cond_2 of the step matrix"]
-        lines += ["  " + "  ".join(c.rjust(wj) for c, wj in zip(r, w)) for r in rows]
-        return "\n".join(lines)
+        return format_table(rows, f"{self.name}: {self.model}, condition number cond_2 of the step matrix")
 
     def save(self, path=None):
         """Write the singular values, conds, shares and the study YAML to <root>/<output.dir>/<name>.npz."""
-        if MPI.COMM_WORLD.rank != 0:
-            return None
-        out = self.raw.get("output", {}).get("dir", "results")
-        path = Path(path) if path else Path(self.root) / out / f"{self.name}.npz"
-        path.parent.mkdir(parents=True, exist_ok=True)
         data = {"key": self.key, "values": np.array(self.values, dtype=object), "h": self.h,
                 "h_eff": self.h_eff, "dofs": self.dofs, "experiment": yaml.safe_dump(self.raw, sort_keys=False)}
         for sc, cs in self.conds.items():
@@ -355,23 +339,11 @@ class Result:
                 data[f"{sc}_share_max_{f}"] = np.array([c.share_max[f] for c in cs])
             if cs[0].dense is not None:
                 data[f"{sc}_dense"] = np.array([c.dense for c in cs])
-        np.savez(path, **data)
-        return path
+        return _study.save_result(self.raw, self.root, self.name, data, path)
 
 
 def load_result(path) -> dict:
-    with np.load(path, allow_pickle=True) as f:
-        out = {k: f[k] for k in f.files}
-    out["experiment"] = yaml.safe_load(str(out["experiment"]))
-    return out
-
-
-def _mean_size(mesh):
-    """(|Omega| / ncells)^(1/dim), in the mesh's own units."""
-    tdim = mesh.topology.dim
-    one = dolfinx.fem.form(dolfinx.fem.Constant(mesh, 1.0) * ufl.dx(mesh))
-    vol = mesh.comm.allreduce(dolfinx.fem.assemble_scalar(one), op=MPI.SUM)
-    return (vol / mesh.topology.index_map(tdim).size_global) ** (1 / tdim)
+    return load_npz(path)
 
 
 def run(st: Study, verbose=False) -> Result:
@@ -389,24 +361,14 @@ def run(st: Study, verbose=False) -> Result:
                 c = conds[sc][-1]
                 print(f"  {st.key} = {v}: {sc} cond {c.cond:.3e} ({c.seconds:.1f} s)", flush=True)
         h.append(geometry.cell_size(model.mesh) * exp.scales.L0)
-        h_eff.append(_mean_size(model.mesh) * exp.scales.L0)
-        dofs.append(model.W.dofmap.index_map.size_global * model.W.dofmap.index_map_bs)
+        h_eff.append(geometry.mean_size(model.mesh) * exp.scales.L0)
+        dofs.append(ndofs(model))
     return Result(st.name, exp.model, st.key, st.values, np.array(h), np.array(h_eff),
                   np.array(dofs), conds, st.raw, st.root)
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="Condition numbers of the step matrix, from a YAML file")
-    ap.add_argument("yaml")
-    ap.add_argument("--set", action="append", default=[], metavar="KEY=VALUE")
-    args = ap.parse_args(argv)
-    overrides = {k: yaml.safe_load(v) for k, v in (s.split("=", 1) for s in args.set)}
-    res = run(load(args.yaml, overrides), verbose=True)
-    path = res.save()
-    if MPI.COMM_WORLD.rank == 0:
-        print(res.table())
-        print(f"saved {path}")
-    return res
+    return _study.cli("Condition numbers of the step matrix, from a YAML file", load, run, argv, verbose=True)
 
 
 if __name__ == "__main__":

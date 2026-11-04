@@ -8,9 +8,8 @@
 """
 import argparse
 
-import yaml
-
 import biotx
+from biotx.util import parse_set
 
 
 def main(argv=None):
@@ -20,10 +19,7 @@ def main(argv=None):
     ap.add_argument("--name", help="output file stem (default: output.name or the YAML stem)")
     args = ap.parse_args(argv)
 
-    overrides = {}
-    for item in args.set:
-        key, value = item.split("=", 1)
-        overrides[key] = yaml.safe_load(value)
+    overrides = parse_set(args.set)
     if args.name:
         overrides["output.name"] = args.name
     exp = biotx.load(args.yaml, overrides)
