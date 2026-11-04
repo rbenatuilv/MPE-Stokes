@@ -23,7 +23,6 @@ Boundary conditions (per named boundary):
 Sources (`sources`, optional): body_force f_d [N/m^3], fluid_force f_w [N/m^3],
 mass_source f_p [-].
 """
-import dolfinx
 import ufl
 
 from biotx.common import BiotModel, NewmarkField, b_P, elasticity

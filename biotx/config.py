@@ -169,7 +169,6 @@ class Experiment:
     output: Output = Output()
     solver: dict = field(default_factory=dict)    # extra PETSc options (default: MUMPS LU)
     exact: dict = field(default_factory=dict)     # manufactured solution (see mms.py)
-    convergence: dict = field(default_factory=dict)   # study description (see convergence.py)
     raw: dict = field(default_factory=dict, repr=False, compare=False)
     root: Path = Path(".")                         # directory of the YAML file
 
@@ -258,7 +257,7 @@ def from_dict(raw: dict, name: str = "experiment", root=".") -> Experiment:
         params=raw.get("params", {}), loads=raw.get("loads", {}),
         sources=raw.get("sources", {}), output=Output(**out),
         solver=raw.get("solver", {}), exact=raw.get("exact", {}),
-        convergence=raw.get("convergence", {}), raw=copy.deepcopy(raw), root=Path(root))
+        raw=copy.deepcopy(raw), root=Path(root))
 
 
 def merge(base: dict, top: dict) -> dict:

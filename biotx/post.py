@@ -36,7 +36,7 @@ import yaml
 from mpi4py import MPI
 
 from biotx.fields import DEFAULT as DEFAULT_FIELDS
-from biotx.fields import FieldWriter
+from biotx.fields import FieldWriter, copy_to, dg_space
 
 
 class Points:
@@ -152,25 +152,6 @@ class BoundaryFlux:
 
     def __call__(self):
         return {name: self.factor * _scalar(self.mesh, f) for name, f in self.forms.items()}
-
-
-def dg_space(V):
-    """V itself if it is DG, else the DG space of the same polynomial degree and shape (which
-    contains V: an RT field is a polynomial on each cell, so it is copied exactly)."""
-    el = V.ufl_element()
-    if el.discontinuous:
-        return V
-    return dolfinx.fem.functionspace(V.mesh, ("DG", el.embedded_superdegree, V.value_shape))
-
-
-def copy_to(g, f, factor=1.0):
-    """g <- factor * f, g in dg_space(f's space)."""
-    if g.function_space == f.function_space:
-        g.x.array[:] = factor * f.x.array
-    else:
-        g.interpolate(f)
-        g.x.array[:] *= factor
-    g.x.scatter_forward()
 
 
 class Recorder:

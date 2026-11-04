@@ -32,6 +32,25 @@ from mpi4py import MPI
 DEFAULT = ["d", "p", "flux"]
 
 
+def dg_space(V):
+    """V itself if it is DG, else the DG space of the same polynomial degree and shape (which
+    contains V: an RT field is a polynomial on each cell, so it is copied exactly)."""
+    el = V.ufl_element()
+    if el.discontinuous:
+        return V
+    return dolfinx.fem.functionspace(V.mesh, ("DG", el.embedded_superdegree, V.value_shape))
+
+
+def copy_to(g, f, factor=1.0):
+    """g <- factor * f, g in dg_space(f's space)."""
+    if g.function_space == f.function_space:
+        g.x.array[:] = factor * f.x.array
+    else:
+        g.interpolate(f)
+        g.x.array[:] *= factor
+    g.x.scatter_forward()
+
+
 class FieldWriter:
     """Collects the DG dofs of some quantities at each call; save() writes the file (rank 0)."""
 
@@ -52,7 +71,6 @@ class FieldWriter:
                               "cell": mesh.topology.cell_name(), "gdeg": cmap.degree,
                               "gvariant": int(cmap.variant)}
         self.meta, self.data, self.t, self._dg = {}, {n: [] for n in self.names}, [], {}
-        from biotx.post import dg_space
         for name in self.names:                  # known before any snapshot, so save() works with none
             V = model.quantity(name)[0].function_space
             if not V.ufl_element().discontinuous:                    # cflux (RT): its exact DG copy
@@ -67,7 +85,6 @@ class FieldWriter:
         for name in self.names:
             f, fac = m.quantity(name)
             if name in self._dg:
-                from biotx.post import copy_to
                 copy_to(self._dg[name], f)
                 f = self._dg[name]
             V = f.function_space

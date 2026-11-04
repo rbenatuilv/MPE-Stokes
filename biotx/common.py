@@ -188,11 +188,12 @@ def make_ksp(A, options=None):
     ksp.setOperators(A)
     ksp.setOptionsPrefix(prefix)
     opts = PETSc.Options()
-    opts.prefixPush(prefix)
-    for k, v in {**MUMPS, **(options or {})}.items():
-        opts[k] = v
-    opts.prefixPop()
+    values = {**MUMPS, **(options or {})}
+    for k, v in values.items():
+        opts[prefix + k] = v
     ksp.setFromOptions()
+    for k in values:                       # read: drop them from the global options database
+        opts.delValue(prefix + k)
     return ksp
 
 
@@ -342,13 +343,16 @@ class BiotModel:
             self.time, self.step = tc.t0 + step * tc.dt, step
             yield self.time
 
-    def run(self, recorder=None):
-        """Run to T, calling recorder(model) after every step. Returns the recorder."""
+    def run(self, recorder=None, progress=None):
+        """Run to T, calling recorder(model) at t0 and after every step, then progress(model)
+        after every step. Returns the recorder."""
         if recorder is not None:
             recorder(self)
         for _ in self.steps():
             if recorder is not None:
                 recorder(self)
+            if progress is not None:
+                progress(self)
         return recorder
 
     def conservative_flux(self):

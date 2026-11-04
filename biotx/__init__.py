@@ -41,14 +41,13 @@ def simulate(exp, verbose=True):
         ndofs = model.W.dofmap.index_map.size_global * model.W.dofmap.index_map_bs
         print(f"{exp.name}: {exp.model}, {ncells} cells, {ndofs} dofs, {exp.time.nsteps} steps "
               f"(setup {time.perf_counter() - t0:.1f} s)", flush=True)
-    rec = Recorder(model)
-    rec(model)
     every = max(1, exp.time.nsteps // 10)
-    for t in model.steps():
-        rec(model)
-        if talk and model.step % every == 0:
-            print(f"  t = {t:.4g} s  ({time.perf_counter() - t0:.1f} s)", flush=True)
-    path = rec.save()
+
+    def progress(m):
+        if m.step % every == 0:
+            print(f"  t = {m.time:.4g} s  ({time.perf_counter() - t0:.1f} s)", flush=True)
+
+    path = model.run(Recorder(model), progress if talk else None).save()
     if talk:
         print(f"saved {path}")
     return path

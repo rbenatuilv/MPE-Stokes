@@ -4,7 +4,7 @@ flow through every facet is the solver's own.
 
     rec = biotx.flux.Reconstruction(model)
     for t in model.steps():
-        u = rec.step()          # Raviart-Thomas Function (non-dimensional; rec.to_si for SI), for the step just taken
+        u = rec.step()          # Raviart-Thomas Function (non-dimensional), for the step just taken
 
 Why. The solver conserves fluid cell by cell with its numerical flux Fhat, a single value on each
 facet. The raw velocity (biot2: -kappa grad p_h; biot3: w_t) is a field on the cells: on a facet the two
@@ -43,8 +43,6 @@ Solve. Facet and interior unknowns decouple: the facet block is the normal-trace
 diagonal by facet), the interior block the moments of the RT bubbles (block diagonal by cell). Both
 are constant, assembled and factorised once; each step assembles two right-hand sides. Serial only.
 """
-from types import SimpleNamespace
-
 import basix.ufl
 import dolfinx
 import dolfinx.fem.petsc
@@ -153,7 +151,6 @@ class Reconstruction:
         self.V = dolfinx.fem.functionspace(mesh, basix.ufl.element("RT", mesh.basix_cell(), k + 1))
         self.u = dolfinx.fem.Function(self.V, name="flux")
         self.old = old = StepState(m)
-        self.to_si = m.exp.scales.L0 / m.exp.scales.T0
 
         md = {"quadrature_degree": 2 * k + 2}
         dS = ufl.Measure("dS", domain=mesh, metadata=md)
