@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 import biotx
+from biotx.biot2 import TwoField
 from biotx.config import from_dict
 
 PULSATILE = Path(__file__).parent / "data" / "pulsatile.yaml"
@@ -65,3 +66,24 @@ def test_sources_depend_on_the_model():
     biotx.load(PULSATILE, {"model": "biot3", "sources": {"mass_source": 0, "fluid_force": [0, 0]}})
     with pytest.raises(ValueError, match="not used by biot3"):
         biotx.load(PULSATILE, {"model": "biot3", "sources": {"fluid_source": 0}})
+
+
+def test_unused_material_is_reported():
+    with pytest.warns(UserWarning, match=r"\['rho_f', 'phi', 'tortuosity'\] not used by biot2"):
+        biotx.load(PULSATILE)
+    with pytest.warns(UserWarning, match=r"\['beta'\] not used by biot3"):
+        biotx.load(PULSATILE, {"model": "biot3", "material.beta": 1e-9})
+
+
+class Renamed(TwoField):
+    """A model defined outside biotx: the class alone registers it."""
+    name = "test_renamed"
+
+
+def test_a_new_model_registers_itself():
+    exp = biotx.load(PULSATILE, {"model": "test_renamed", "geometry.h": 4e-3, "time.T": 0.01})
+    model = biotx.make_model(exp)
+    assert type(model) is Renamed and model.sd is model.nmk["d"]
+    assert next(model.steps()) == pytest.approx(0.01)
+    with pytest.raises(ValueError, match="test_renamed"):
+        biotx.load(PULSATILE, {"model": "nonexistent"})

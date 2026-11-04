@@ -1,13 +1,24 @@
-"""What both Biot models share: DG building blocks, Newmark, boundary data, the linear
+"""What the Biot models share: DG building blocks, Newmark, boundary data, the linear
 solver and the `BiotModel` base class (mesh, constants, mixed space, time loop).
 
-A model (biot2.py, biot3.py) only has to say
-    fields        the unknowns, e.g. ("d", "p")
-    _elements()   their DG elements
-    _residual()   the weak form of one time step, F(trial, test) = 0
-    _advance()    how the old-step state is updated after a solve
-    flux()        the Darcy flux q = phi (v_fluid - v_solid)
-and everything else (assembly, LU factorisation, time loop, outputs) is done here.
+A model (biot2.py, biot3.py) is a subclass that declares
+    name             the `model:` value in the YAML; defining the class registers it
+    fields           the unknowns and the kind of each (its SI conversion), e.g.
+                     {"d": "displacement", "p": "pressure"}
+    newmark          the fields integrated with Newmark (the base class keeps their old
+                     value, velocity and acceleration in self.nmk[f])
+    sources          the `sources` it reads and the kind of each, e.g. {"fluid_source": "rate"}
+    material_keys    the `material` parameters it reads (others given are reported as unused)
+and implements
+    _elements()      the DG element of each field
+    _init_state()    any old-step state beyond self.nmk (biot2: p_old, theta)
+    _residual()      the weak form of one time step, F(trial, test) = 0
+    _advance()       how the old-step state is updated after a solve (True: the matrix changed)
+    flux()           the Darcy flux q = phi (v_fluid - v_solid)
+    strong_form(), exact_flux()      sources and flux of an exact solution (mms.py)
+and, for the conservative velocity (flux.py), its step-consistent mass balance
+    trace_degree(), numerical_flux(old), step_velocities(old), fluid_gained(old, q), flux_lifting(old, psi, dS)
+Everything else (assembly, LU factorisation, time loop, initial state, outputs) is done here.
 
 Notation, as in the models:  [[.]] jump, {.} average on interior facets; n outward normal;
 h cell diameter, hF harmonic mean of the two diameters on an interior facet; k = deg.
@@ -55,9 +66,9 @@ def elasticity(d, v, M):
         (sigma_e(d), eps(v)) - <{sigma_e(d)}, [[v n]]> - <{sigma_e(v)}, [[d n]]>
           + pen/hF <[[d n]], [[v n]]>                                     (interior facets)
           - <sigma_e(d), (v n)> - <sigma_e(v), ((d - g_d) n)> + pen/h <(d - g_d) n, v n>   (Gamma_d)
-    pen = eta (lambda + 2 mu) k^2."""
+    pen = eta (lambda + 2 mu) k^2 (M.pen_elastic)."""
     c, m, n = M.c, M.m, M.m.n
-    pen = c.eta * (c.lam + 2 * c.mu) * M.k**2
+    pen = M.pen_elastic
     F = (ufl.inner(sigma_e(d, c), eps(v)) * m.dx
          - ufl.inner(ufl.avg(sigma_e(d, c)), sym_jump(v, n)) * m.dS
          - ufl.inner(ufl.avg(sigma_e(v, c)), sym_jump(d, n)) * m.dS
@@ -227,6 +238,9 @@ class LinearSolver:
 
 
 # ---- the model base class ----------------------------------------------------------------
+REGISTRY = {}                          # name -> model class (biotx.models.make_model)
+
+
 class BiotModel:
     """Mesh, constants, boundary data, mixed DG space, solver and time loop of one experiment.
 
@@ -235,9 +249,16 @@ class BiotModel:
             ...                        # model.u["d"], model.u["p"], model.flux(), ...
     """
 
-    fields: tuple = ()
-    units = {"d": "displacement", "w": "displacement", "p": "pressure",
-             "flux": "velocity", "velocity": "velocity", "cflux": "velocity"}
+    name: str = ""
+    fields: dict = {}
+    newmark: tuple = ()
+    sources: dict = {}
+    material_keys: tuple = ("lam", "mu", "alpha", "c0", "K", "muF", "rho")
+
+    def __init_subclass__(cls, **kw):
+        super().__init_subclass__(**kw)
+        if "name" in vars(cls):
+            REGISTRY[cls.name] = cls
 
     def __init__(self, exp, domain=None):
         """domain: an already built geometry.Domain (to reuse one mesh in several runs)."""
@@ -271,6 +292,8 @@ class BiotModel:
         self.mms = Manufactured(self) if exp.exact else None        # sources, BC data, initial state
         self.bc = BoundaryConditions(exp, self.domain, self.ex, self.m, self.mms)
         self.nm = Newmark(tc.newmark_beta, tc.newmark_gamma, self.dt)
+        # weight of t^{n+1} in the time scheme: 1 unless the model has a theta-method (biot2)
+        self.theta_target, self.theta = 1.0, const(1.0)
 
         # mixed DG space, one collapsed space and Function per field
         el = self._elements()
@@ -283,6 +306,7 @@ class BiotModel:
         self.sol = dolfinx.fem.Function(self.W)
         self.reconstruction = None                     # biotx.flux.Reconstruction, made on request (cflux)
 
+        self.nmk = {f: NewmarkField(self.V[f], self.nm) for f in self.newmark}
         self._init_state()
         F = self._residual(dict(zip(self.fields, ufl.TrialFunctions(self.W))),
                            dict(zip(self.fields, ufl.TestFunctions(self.W))))
@@ -292,13 +316,34 @@ class BiotModel:
 
     # -- to be provided by the models
     def _elements(self): raise NotImplementedError
-    def _init_state(self): raise NotImplementedError
+    def _init_state(self): pass
     def _residual(self, u, v): raise NotImplementedError
     def _advance(self) -> bool: raise NotImplementedError
-    def _set_initial(self, values): raise NotImplementedError
     def flux(self): raise NotImplementedError
     def strong_form(self, fields, C): raise NotImplementedError    # sources for given fields (mms.py)
     def exact_flux(self, fields, C): raise NotImplementedError
+    # the mass balance over one step (flux.py); old: a flux.StepState (the state at t^n)
+    def trace_degree(self) -> int: raise NotImplementedError        # normal traces of the RT velocity
+    def numerical_flux(self, old): raise NotImplementedError        # (interior, [(ds, boundary)])
+    def step_velocities(self, old): raise NotImplementedError       # {"end": ..., "avg": ...}
+    def fluid_gained(self, old, q): raise NotImplementedError       # mass equation without its flux part
+    def flux_lifting(self, old, psi, dS): return None               # cell term of the RT velocity, if any
+
+    @property
+    def units(self):
+        """Kind of each output quantity (its SI conversion, Scales.factor)."""
+        return {**self.fields, "flux": "velocity", "velocity": "velocity", "cflux": "velocity"}
+
+    @property
+    def sd(self):
+        """The Newmark state of the solid displacement d."""
+        return self.nmk["d"]
+
+    @property
+    def pen_elastic(self):
+        """SIPG penalty of elasticity, eta (lambda + 2 mu) k^2."""
+        c = self.c
+        return c.eta * (c.lam + 2 * c.mu) * self.k**2
 
     # -- helpers for the models
     def element(self, deg, vector=False):
@@ -306,8 +351,9 @@ class BiotModel:
         shape = (self.mesh.geometry.dim,) if vector else ()
         return basix.ufl.element("DG", self.mesh.basix_cell(), deg, shape=shape)
 
-    def source(self, name, kind, shape=()):
+    def source(self, name, shape=()):
         """A `sources` entry, non-dimensional (zero if absent)."""
+        kind = self.sources[name]
         if self.mms is not None:                                   # derived from `exact`
             return self.exp.scales.factor[kind] * self.mms.sources[name]
         value = self.exp.sources.get(name, np.zeros(shape).tolist() if shape else 0.0)
@@ -320,10 +366,25 @@ class BiotModel:
     def interpolate(self, f, expr):
         f.interpolate(dolfinx.fem.Expression(expr, f.function_space.element.interpolation_points))
 
+    def _set_initial(self, v):
+        """v: non-dimensional UFL values. A Newmark field f takes f, f_t, f_tt (its old state and
+        the current value); any other field takes f (its current value)."""
+        f = self.exp.scales.factor
+        for name, kind in self.fields.items():
+            if name in self.nmk:
+                s = self.nmk[name]
+                for func, key, k in ((s.u_old, name, kind), (s.z_old, name + "_t", "velocity"),
+                                     (s.a_old, name + "_tt", "acceleration")):
+                    if key in v:
+                        self.interpolate(func, f[k] * v[key])
+                self.u[name].x.array[:] = s.u_old.x.array
+            elif name in v:
+                self.interpolate(self.u[name], f[kind] * v[name])
+
     # -- public API
     def set_initial(self, **values):
         """Initial state instead of rest, at t0. Values as in the YAML (SI) or callables
-        f(x, t): d, d_t, d_tt, p (and w, w_t, w_tt for the three-field model)."""
+        f(x, t): each field f, and f_t, f_tt for the Newmark ones (d, d_t, d_tt, p; w, w_t, w_tt)."""
         self._set_initial({k: self.ex(v) for k, v in values.items()})
 
     def steps(self):

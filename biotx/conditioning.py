@@ -49,6 +49,7 @@ from slepc4py import SLEPc
 
 from biotx import geometry, study as _study
 from biotx.common import make_ksp
+from biotx.models import make_model
 from biotx.util import format_table, load_npz, ndofs
 
 SCALINGS = ("raw", "jacobi", "schur")
@@ -77,9 +78,8 @@ class Condition:
 def step_matrix(model):
     """The matrix of a regular step. In biot2 with a Rannacher start the model is built with
     theta = 1; this switches it to the requested theta (and refactorises at the next solve)."""
-    target = getattr(model, "theta_target", None)
-    if target is not None and model.theta.value != target:
-        model.theta.value = target
+    if model.theta.value != model.theta_target:
+        model.theta.value = model.theta_target
         model.solver.update_matrix()
     return model.solver.A
 
@@ -348,7 +348,6 @@ def load_result(path) -> dict:
 
 def run(st: Study, verbose=False) -> Result:
     """Build the model for every value of the sweep and measure its condition numbers."""
-    from biotx import make_model
     conds, h, h_eff, dofs = {sc: [] for sc in st.spec["scaling"]}, [], [], []
     for v in st.values:
         exp = st.experiment(v)

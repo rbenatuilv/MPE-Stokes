@@ -8,21 +8,16 @@
     rec = model.run(biotx.Recorder(model))
     rec.save()
 """
-from biotx.biot2 import TwoField
-from biotx.biot3 import ThreeField
+import importlib
+
 from biotx.compare import compare
 from biotx.config import Experiment, load
 from biotx.fields import Fields, load_fields
 from biotx.geometry import build as build_geometry
+from biotx.models import REGISTRY as MODELS
+from biotx.models import ThreeField, TwoField, make_model
 from biotx.post import Points, Recorder, load_results
 from biotx.util import ndofs
-
-MODELS = {"biot2": TwoField, "biot3": ThreeField}
-
-
-def make_model(exp, domain=None):
-    """The model class named by exp.model, built for this experiment."""
-    return MODELS[exp.model](exp, domain)
 
 
 def simulate(exp, verbose=True):
@@ -53,7 +48,11 @@ def simulate(exp, verbose=True):
     return path
 
 
-from biotx import conditioning, convergence  # noqa: E402  (after make_model, which they use)
+def __getattr__(name):
+    """biotx.conditioning and biotx.convergence, imported on first use (SLEPc, study code)."""
+    if name in ("conditioning", "convergence"):
+        return importlib.import_module(f"biotx.{name}")
+    raise AttributeError(f"module 'biotx' has no attribute {name!r}")
 
 __all__ = ["conditioning", "convergence", "Experiment", "load", "make_model", "simulate", "TwoField", "ThreeField", "Recorder",
            "Points", "load_results", "build_geometry", "Fields", "load_fields", "compare"]

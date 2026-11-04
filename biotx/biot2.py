@@ -24,11 +24,15 @@ Sources (`sources` in the YAML, optional):  body_force f [N/m^3],  fluid_source 
 import dolfinx
 import ufl
 
-from biotx.common import BiotModel, NewmarkField, b_P, elasticity
+from biotx.common import BiotModel, b_P, elasticity
 
 
 class TwoField(BiotModel):
-    fields = ("d", "p")
+    name = "biot2"
+    fields = {"d": "displacement", "p": "pressure"}
+    newmark = ("d",)
+    sources = {"body_force": "body_force", "fluid_source": "rate"}
+    material_keys = BiotModel.material_keys + ("beta",)
 
     def _elements(self):
         d = self.exp.discretization
@@ -36,9 +40,8 @@ class TwoField(BiotModel):
         return {"d": self.element(d.deg, vector=True), "p": self.element(self.deg_p)}
 
     def _init_state(self):
-        """Old-step state: Newmark (d, d_t, d_tt) and p; theta as a Constant."""
+        """Old-step state besides Newmark (d, d_t, d_tt): p; theta as a Constant."""
         tc = self.exp.time
-        self.sd = NewmarkField(self.V["d"], self.nm)
         self.p_old = dolfinx.fem.Function(self.V["p"])
         self.theta_target = tc.theta
         self.theta = dolfinx.fem.Constant(self.mesh, 1.0 if tc.startup_steps > 0 else tc.theta)
@@ -49,11 +52,17 @@ class TwoField(BiotModel):
         self._q_expr = dolfinx.fem.Expression(-self.c.kappa * ufl.grad(self.u["p"]),
                                               Vq.element.interpolation_points)
 
+    @property
+    def pen_darcy(self):
+        """SIPG penalty of the Darcy operator, zeta kpen k^2 (kpen = max(kappa, 1))."""
+        c = self.c
+        return c.zeta * c.kpen * self.k**2
+
     def darcy(self, p, q):
         """SIPG form of -div(kappa grad p) + beta p, with Nitsche p = . on the pressure
-        boundaries (only the part that depends on p; the data is in darcy_data)."""
+        boundaries (only the part that depends on p; the data is in mass_data)."""
         c, m, n = self.c, self.m, self.m.n
-        pen = c.zeta * c.kpen * self.k**2
+        pen = self.pen_darcy
         F = (c.kappa * ufl.inner(ufl.grad(p), ufl.grad(q)) * m.dx
              - c.kappa * ufl.inner(ufl.avg(ufl.grad(p)), ufl.jump(q, n)) * m.dS
              - c.kappa * ufl.inner(ufl.avg(ufl.grad(q)), ufl.jump(p, n)) * m.dS
@@ -70,8 +79,8 @@ class TwoField(BiotModel):
         """Right-hand side of the mass equation at the current time t: source, pressure
         (Nitsche) and flux data, and the boundary velocity of a prescribed displacement."""
         c, m, n = self.c, self.m, self.m.n
-        pen = c.zeta * c.kpen * self.k**2
-        G = self.source("fluid_source", "rate") * q * m.dx
+        pen = self.pen_darcy
+        G = self.source("fluid_source") * q * m.dx
         for ds, gp in self.bc.pressure:
             G += - c.kappa * ufl.inner(ufl.grad(q), n) * gp * ds + pen / m.h * gp * q * ds
         for ds, gq in self.bc.flux:
@@ -89,7 +98,7 @@ class TwoField(BiotModel):
         F = (c.rho * ufl.inner(sd.a_new(d), vd) * m.dx
              + elasticity(d, vd, self)
              + c.alpha * b_P(p, vd, self)
-             - ufl.inner(self.source("body_force", "body_force", (self.mesh.geometry.dim,)), vd) * m.dx)
+             - ufl.inner(self.source("body_force", (self.mesh.geometry.dim,)), vd) * m.dx)
         for ds, tr in self.bc.traction:
             F -= ufl.inner(tr, vd) * ds
 
@@ -115,13 +124,8 @@ class TwoField(BiotModel):
         return False
 
     def _set_initial(self, v):
-        f = self.exp.scales.factor
-        for func, key, kind in ((self.sd.u_old, "d", "displacement"), (self.sd.z_old, "d_t", "velocity"),
-                                (self.sd.a_old, "d_tt", "acceleration"), (self.p_old, "p", "pressure")):
-            if key in v:
-                self.interpolate(func, f[kind] * v[key])
-        self.u["d"].x.array[:] = self.sd.u_old.x.array
-        self.u["p"].x.array[:] = self.p_old.x.array
+        super()._set_initial(v)
+        self.p_old.x.array[:] = self.u["p"].x.array
         self._q.interpolate(self._q_expr)
 
     def strong_form(self, F, C):
@@ -141,3 +145,45 @@ class TwoField(BiotModel):
     def flux(self):
         """Darcy flux q = -kappa grad p_h (non-dimensional), DG_{deg_p - 1}."""
         return self._q
+
+    # -- the mass balance over one step (flux.py: the formulas are in its docstring)
+    def trace_degree(self):
+        return self.deg_p
+
+    def numerical_flux(self, old):
+        """theta Fhat(p^{n+1}) + (1 - theta) Fhat(p^n), Fhat(p) out of K: the SIPG flux of darcy()."""
+        c, m, n = self.c, self.m, self.m.n
+        th, pen = old.th, self.pen_darcy
+
+        def at_level(p, at):
+            interior = -c.kappa * ufl.inner(ufl.avg(ufl.grad(p)), n("+")) + pen / m.hF * ufl.jump(p)
+            bnd = [(ds, -c.kappa * ufl.inner(ufl.grad(p), n) + pen / m.h * (p - at(gp))) for ds, gp in self.bc.pressure]
+            return interior, bnd + [(ds, at(gq)) for ds, gq in self.bc.flux]
+
+        (i1, b1), (i0, b0) = at_level(self.u["p"], lambda e: e), at_level(old.u["p"], old.at_old_time)
+        return th * i1 + (1 - th) * i0, [(ds, th * a + (1 - th) * b) for (ds, a), (_, b) in zip(b1, b0)]
+
+    def step_velocities(self, old):
+        q1, q0 = -self.c.kappa * ufl.grad(self.u["p"]), -self.c.kappa * ufl.grad(old.u["p"])
+        return {"end": q1, "avg": old.th * q1 + (1 - old.th) * q0}
+
+    def fluid_gained(self, old, q):
+        c, m, n = self.c, self.m, self.m.n
+        th, p, p0 = old.th, self.u["p"], old.u["p"]
+        z_th = th * self.sd.z_old + (1 - th) * old.z["d"]
+        g = self.source("fluid_source")
+        G = (c.c0 / self.dt * (p - p0) * q * m.dx + c.beta * (th * p + (1 - th) * p0) * q * m.dx
+             - (th * g + (1 - th) * old.at_old_time(g)) * q * m.dx - c.alpha * b_P(q, z_th, self))
+        for ds, _, gd_t in self.bc.displacement:
+            G += c.alpha * q * ufl.inner(th * gd_t + (1 - th) * old.at_old_time(gd_t), n) * ds
+        return G
+
+    def flux_lifting(self, old, psi, dS):
+        """Lifting of the symmetric SIPG term: sum_F int_F omega kappa (psi.n) [[p_th]]."""
+        c, n, th = self.c, self.m.n, old.th
+        p_th = th * self.u["p"] + (1 - th) * old.u["p"]
+        L = c.kappa * ufl.jump(p_th) * ufl.inner(ufl.avg(psi), n("+")) * dS
+        for ds, gp in self.bc.pressure:
+            g_th = th * gp + (1 - th) * old.at_old_time(gp)
+            L += c.kappa * (p_th - g_th) * ufl.inner(psi, n) * ds
+        return L

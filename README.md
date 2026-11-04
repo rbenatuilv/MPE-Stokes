@@ -14,8 +14,8 @@ python -m pytest                                                # tests (about 1
 | `experiments/README.md` | how to write and run experiments; the studies |
 | `experiments/YAML_REFERENCE.md` | every YAML key |
 | `docs/theory.md` | the models, the discretization, verification, conditioning, the H(div) velocity |
-| `biotx/biot2.py`, `biot3.py` | the two models, each explained at the top |
-| `biotx/common.py` | shared DG forms, Newmark, boundary conditions, solver, time loop |
+| `biotx/biot2.py`, `biot3.py`, `models.py` | the two models, each explained at the top; the registry (`make_model`) |
+| `biotx/common.py` | shared DG forms, Newmark, boundary conditions, solver, time loop; what a model provides |
 | `biotx/flux.py` | the conservative velocity `cflux`, built after each step |
 | `biotx/config.py`, `geometry.py`, `expressions.py` | YAML, meshes with named boundaries, formulas of x and t |
 | `biotx/post.py`, `fields.py` | outputs (probes, lines, grids, fields, ParaView), `load_results`, `load_fields` |

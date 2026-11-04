@@ -12,6 +12,8 @@ Overrides (parameter sweeps) use dotted keys on the raw YAML tree:
     load("annulus_biot2.yaml", {"time.dt": 0.005, "params.A": 266.6, "geometry.h": 2.5e-4})
 """
 import copy
+import dataclasses
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
@@ -20,11 +22,8 @@ import yaml
 
 from biotx import geometry
 from biotx.expressions import FUNCTIONS, VARIABLES
+from biotx.models import REGISTRY                              # the models: fields, sources, material
 
-MODELS = ("biot2", "biot3")
-SOURCES = {"biot2": ("body_force", "fluid_source"),                    # what each model reads
-           "biot3": ("body_force", "fluid_force", "mass_source")}
-FIELDS = {"biot2": ("d", "p"), "biot3": ("d", "w", "p")}               # unknowns (for `exact`)
 MECHANICAL = ("displacement", "traction", "normal_traction")   # one per boundary
 HYDRAULIC = ("pressure", "flux")                               # one per boundary
 
@@ -58,6 +57,12 @@ class Material:
     phi: float = 1.0         # porosity [-]                               (three-field only)
     tortuosity: float = 1.0  # [-]                                        (three-field only)
     beta: float = 0.0        # leakage coefficient [1/(Pa s)]             (two-field only)
+
+    def unused(self, keys) -> list:
+        """The parameters not in `keys` (those a model reads) that differ from their default."""
+        return [f.name for f in dataclasses.fields(self)
+                if f.name not in keys and f.default is not dataclasses.MISSING
+                and getattr(self, f.name) != f.default]
 
     @classmethod
     def from_dict(cls, raw: dict) -> "Material":
@@ -203,9 +208,10 @@ def _check_boundaries(boundaries: dict):
 
 def _check_names(model, params, loads, sources):
     """Sources the model reads, and params / loads that do not hide a built-in formula name."""
-    unknown = set(sources) - set(SOURCES[model])
+    reads = list(REGISTRY[model].sources)
+    unknown = set(sources) - set(reads)
     if unknown:
-        raise ValueError(f"sources: {sorted(unknown)} not used by {model}; it reads {list(SOURCES[model])}")
+        raise ValueError(f"sources: {sorted(unknown)} not used by {model}; it reads {reads}")
     reserved = set(FUNCTIONS) | set(VARIABLES)
     for section, names in (("params", params), ("loads", loads)):
         bad = reserved & set(names)
@@ -221,9 +227,10 @@ def _check_exact(model, exact, sources, boundaries):
     boundary value needs one, and cannot be a normal traction (the exact traction has a
     tangential part in general)."""
     if exact:
-        missing, extra = set(FIELDS[model]) - set(exact), set(exact) - set(FIELDS[model])
+        fields = list(REGISTRY[model].fields)
+        missing, extra = set(fields) - set(exact), set(exact) - set(fields)
         if missing or extra:
-            raise ValueError(f"exact: {model} needs exactly {list(FIELDS[model])}; "
+            raise ValueError(f"exact: {model} needs exactly {fields}; "
                              f"missing {sorted(missing)}, unknown {sorted(extra)}")
         if sources:
             raise ValueError("sources: not allowed with `exact` (they are derived from it)")
@@ -239,18 +246,22 @@ def _check_exact(model, exact, sources, boundaries):
 def from_dict(raw: dict, name: str = "experiment", root=".") -> Experiment:
     """Build an Experiment from a raw YAML tree (unknown keys raise TypeError)."""
     model = raw.get("model", "biot2")
-    if model not in MODELS:
-        raise ValueError(f"model must be one of {MODELS}, got '{model}'")
+    if model not in REGISTRY:
+        raise ValueError(f"model must be one of {tuple(REGISTRY)}, got '{model}'")
     boundaries = raw["boundaries"]
     _check_boundaries(boundaries)
     geometry.check(raw["geometry"])
     _check_names(model, raw.get("params", {}), raw.get("loads", {}), raw.get("sources", {}))
     _check_exact(model, raw.get("exact", {}), raw.get("sources", {}), boundaries)
     out = raw.get("output", {})
+    material = Material.from_dict(raw["material"])
+    unused = material.unused(REGISTRY[model].material_keys)
+    if unused:
+        warnings.warn(f"material: {unused} not used by {model}", stacklevel=2)
     return Experiment(
         name=out.get("name") or name, model=model,
         scales=Scales(**raw.get("scales", {})),
-        material=Material.from_dict(raw["material"]),
+        material=material,
         geometry=raw["geometry"], boundaries=boundaries,
         time=Time(**raw["time"]),
         discretization=Discretization(**raw.get("discretization", {})),

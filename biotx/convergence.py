@@ -43,8 +43,8 @@ import ufl
 import yaml
 
 from biotx import geometry, study as _study
-from biotx.config import FIELDS
 from biotx.fields import DGDifference, norm_form
+from biotx.models import REGISTRY, make_model
 from biotx.util import format_table, integrate, load_npz, ndofs
 
 STUDIES = ("space", "time", "self")
@@ -64,12 +64,13 @@ def _check(raw):
         raise ValueError(f"convergence ({kind}): unknown key(s) {sorted(unknown)}; "
                          f"allowed {sorted(COMMON | KEYS[kind])}")
     model = raw.get("model", "biot2")
+    fields = list(REGISTRY[model].fields) if model in REGISTRY else []      # (from_dict reports a bad model)
     spec.setdefault("norms", list(NORMS))
-    spec.setdefault("fields", list(FIELDS[model]) + ["flux"])
+    spec.setdefault("fields", fields + ["flux"])
     spec.setdefault("at", "final")
     if set(spec["norms"]) - set(NORMS):
         raise ValueError(f"convergence.norms: one or more of {NORMS}")
-    allowed = set(FIELDS[model]) | {"flux", "velocity"}
+    allowed = set(fields) | {"flux", "velocity"}
     if set(spec["fields"]) - allowed:
         raise ValueError(f"convergence.fields: {model} has {sorted(allowed)}")
     if kind in ("space", "time"):
@@ -212,11 +213,6 @@ def load_result(path) -> dict:
 
 
 # ---- the three studies -------------------------------------------------------------------
-def _make(exp, domain=None):
-    from biotx import make_model
-    return make_model(exp, domain)
-
-
 def _space(st):
     spec = st.spec
     label = "n" if "n" in spec else "h"
@@ -226,7 +222,7 @@ def _space(st):
         ov = {"geometry.n": list(v) if isinstance(v, (list, tuple)) else [int(v)] * dim} if label == "n" \
             else {"geometry.h": float(v)}
         exp = st.experiment(ov)
-        model = _make(exp)
+        model = make_model(exp)
         for k, e in _mms_errors(model, spec).items():
             errs.setdefault(k, []).append(e)
         h.append(geometry.cell_size(model.mesh) * exp.scales.L0)
@@ -241,7 +237,7 @@ def _time(st):
     domain = None
     for dt in values:
         exp = st.experiment({"time.dt": dt})
-        model = _make(exp, domain)
+        model = make_model(exp, domain)
         domain = model.domain                            # the same mesh for every dt
         for k, e in _mms_errors(model, spec).items():
             errs.setdefault(k, []).append(e)
@@ -262,7 +258,7 @@ def _self(st):
             domain = geometry.refine(domain)
         dt = exp0.time.dt / 2**lvl if spec["refine_dt"] else exp0.time.dt
         exp = st.experiment({"time.dt": dt})
-        model = _make(exp, domain)
+        model = make_model(exp, domain)
         snap = {}
         for t in model.steps():
             hit = [ts for ts in times if abs(t - ts) < dt / 2]

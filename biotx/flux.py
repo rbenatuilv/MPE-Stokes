@@ -36,8 +36,12 @@ symmetric SIPG term, make it exact against every pressure test function, not onl
 
     (div u, q)_K = -gained(q)      for every q in P_{deg_p}(K)   (biot2: deg_p = k; biot3: deg_p = k - 1)
 
-where gained is the solver's mass equation without its flux part (fluid_gained below). This is the
+where gained is the solver's mass equation without its flux part (fluid_gained). This is the
 form of the construction in Ern, Nicaise and Vohralik (2007) and Bastian and Riviere (2003).
+
+Each model states its own quantities, next to its residual: trace_degree() (k), numerical_flux(old)
+(Fhat), step_velocities(old) (q_avg and the end-of-step velocity), fluid_gained(old, q) and
+flux_lifting(old, psi, dS) (L). This module only solves for u, for any model that provides them.
 
 Solve. Facet and interior unknowns decouple: the facet block is the normal-trace mass matrix (block
 diagonal by facet), the interior block the moments of the RT bubbles (block diagonal by cell). Both
@@ -50,24 +54,20 @@ import numpy as np
 import ufl
 from petsc4py import PETSc
 
-from biotx.common import b_P, make_ksp
+from biotx.common import make_ksp
 
 
 class StepState:
     """Copies of the state at t^n (the model overwrites its own old state when it advances), so that
-    quantities over the step t^n -> t^{n+1} can be formed after each solve. Call advance() after use."""
+    quantities over the step t^n -> t^{n+1} can be formed after each solve: u[f] for every field,
+    z[f] the velocity of every Newmark field, t and th (the theta of the step). Call advance() after use."""
 
     def __init__(self, model):
         self.m = m = model
         const = lambda x: dolfinx.fem.Constant(m.mesh, float(x))
-        self.t = const(m.t.value)
-        self.th = const(m.theta.value if hasattr(m, "theta") else 1.0)
-        self.three = m.exp.model == "biot3"
-        self.p = dolfinx.fem.Function(m.V["p"])
-        self.d = dolfinx.fem.Function(m.V["d"])
-        self.z = dolfinx.fem.Function(m.V["d"])               # Newmark velocity of d
-        if self.three:
-            self.w = dolfinx.fem.Function(m.V["w"])
+        self.t, self.th = const(m.t.value), const(m.theta.value)
+        self.u = {f: dolfinx.fem.Function(m.V[f]) for f in m.fields}
+        self.z = {f: dolfinx.fem.Function(m.V[f]) for f in m.newmark}
         self.advance()
 
     def at_old_time(self, e):
@@ -77,63 +77,29 @@ class StepState:
     def advance(self):
         """The state just computed becomes the old state of the next step."""
         m = self.m
-        pairs = [(self.p, m.u["p"]), (self.d, m.u["d"]), (self.z, m.sd.z_old)]
-        if self.three:
-            pairs.append((self.w, m.u["w"]))
+        pairs = [(self.u[f], m.u[f]) for f in self.u] + [(self.z[f], m.nmk[f].z_old) for f in self.z]
         for dst, src in pairs:
             dst.x.array[:] = src.x.array
         self.t.value = m.t.value
-        if hasattr(m, "theta"):
-            self.th.value = m.theta.value                     # the theta of the next solve
+        self.th.value = m.theta.value                         # the theta of the next solve
 
 
+# The model's own step-consistent mass balance (the methods of the same name on each model).
 def numerical_flux(model, old):
     """The solver's wall flow over the step: (interior, [(ds, boundary)]), with `interior` the flow
     out of the '+' cell of each interior facet and `boundary` the outward flow on each boundary."""
-    m, c, mm, n = model, model.c, model.m, model.m.n
-    if m.exp.model == "biot3":
-        Dw = (m.u["w"] - old.w) / m.dt
-        return ufl.inner(ufl.avg(Dw), n("+")), [(ds, ufl.inner(Dw, n)) for ds, _ in m.bc.pressure]
-    th, pen = old.th, c.zeta * c.kpen * m.k**2
-
-    def at_level(p, at):
-        interior = -c.kappa * ufl.inner(ufl.avg(ufl.grad(p)), n("+")) + pen / mm.hF * ufl.jump(p)
-        bnd = [(ds, -c.kappa * ufl.inner(ufl.grad(p), n) + pen / mm.h * (p - at(gp))) for ds, gp in m.bc.pressure]
-        return interior, bnd + [(ds, at(gq)) for ds, gq in m.bc.flux]
-
-    (i1, b1), (i0, b0) = at_level(m.u["p"], lambda e: e), at_level(old.p, old.at_old_time)
-    return th * i1 + (1 - th) * i0, [(ds, th * a + (1 - th) * b) for (ds, a), (_, b) in zip(b1, b0)]
+    return model.numerical_flux(old)
 
 
 def raw_velocities(model, old):
     """The velocity fields a transport equation could be given: end of step and step average."""
-    m = model
-    if m.exp.model == "biot3":
-        return {"end": m.sw.z_old, "avg": (m.u["w"] - old.w) / m.dt}
-    q1, q0 = -m.c.kappa * ufl.grad(m.u["p"]), -m.c.kappa * ufl.grad(old.p)
-    return {"end": q1, "avg": old.th * q1 + (1 - old.th) * q0}
+    return model.step_velocities(old)
 
 
 def fluid_gained(model, old, q):
     """The solver's mass equation over the step without its flux part, tested with q: the fluid
     gained (storage, solid deformation, minus sources) per unit time. gained(q) + (flux part)(q) = 0."""
-    m, c, mm, n = model, model.c, model.m, model.m.n
-    if m.exp.model == "biot3":
-        Dd = m.u["d"] - old.d
-        fp = m.source("mass_source", "none")
-        G = (c.c0 / m.dt * (m.u["p"] - old.p) * q * mm.dx - (fp - old.at_old_time(fp)) / m.dt * q * mm.dx
-             - c.alpha / m.dt * b_P(q, Dd, m))
-        for ds, gd, _ in m.bc.displacement:
-            G += c.alpha / m.dt * q * ufl.inner(gd - old.at_old_time(gd), n) * ds
-        return G
-    th, p = old.th, m.u["p"]
-    z_th = th * m.sd.z_old + (1 - th) * old.z
-    g = m.source("fluid_source", "rate")
-    G = (c.c0 / m.dt * (p - old.p) * q * mm.dx + c.beta * (th * p + (1 - th) * old.p) * q * mm.dx
-         - (th * g + (1 - th) * old.at_old_time(g)) * q * mm.dx - c.alpha * b_P(q, z_th, m))
-    for ds, _, gd_t in m.bc.displacement:
-        G += c.alpha * q * ufl.inner(th * gd_t + (1 - th) * old.at_old_time(gd_t), n) * ds
-    return G
+    return model.fluid_gained(old, q)
 
 
 class Reconstruction:
@@ -144,8 +110,7 @@ class Reconstruction:
             raise NotImplementedError("flux reconstruction: serial runs only")
         self.m = m = model
         mesh, n = m.mesh, m.m.n
-        three = m.exp.model == "biot3"
-        self.k = k = m.k if three else m.deg_p                 # degree of the normal traces
+        self.k = k = m.trace_degree()                         # degree of the normal traces
         if k < 1:
             raise ValueError("flux reconstruction needs normal traces of degree >= 1")
         self.V = dolfinx.fem.functionspace(mesh, basix.ufl.element("RT", mesh.basix_cell(), k + 1))
@@ -163,19 +128,14 @@ class Reconstruction:
         # facet equations: normal-trace mass (bubbles have no normal trace: their rows are zero)
         a_facet = (ufl.inner(u("+"), n("+")) * ufl.inner(v("+"), n("+")) * dS
                    + ufl.inner(u, n) * ufl.inner(v, n) * ds_all)
-        interior, bnd = numerical_flux(m, old)
+        interior, bnd = m.numerical_flux(old)
         L_facet = interior * ufl.inner(v("+"), n("+")) * dS + sum(b * ufl.inner(v, n) * ds for ds, b in bnd)
         # cell equations: moments against [P_{k-1}]^d
         a_cell = ufl.inner(u, psi) * dx
-        q_avg = raw_velocities(m, old)["avg"]
-        L_cell = ufl.inner(q_avg, psi) * dx
-        if not three:                                          # lifting of the symmetric SIPG term
-            c, th = m.c, old.th
-            p_th = th * m.u["p"] + (1 - th) * old.p
-            L_cell += c.kappa * ufl.jump(p_th) * ufl.inner(ufl.avg(psi), n("+")) * dS
-            for ds, gp in m.bc.pressure:
-                g_th = th * gp + (1 - th) * old.at_old_time(gp)
-                L_cell += c.kappa * (p_th - g_th) * ufl.inner(psi, n) * ds
+        L_cell = ufl.inner(m.step_velocities(old)["avg"], psi) * dx
+        lifting = m.flux_lifting(old, psi, dS)                 # biot2: of the symmetric SIPG term
+        if lifting is not None:
+            L_cell += lifting
 
         # facet and interior unknowns of RT
         tdim = mesh.topology.dim

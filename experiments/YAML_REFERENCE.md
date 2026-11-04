@@ -73,6 +73,9 @@ Contents:
 model: biot3
 ```
 
+A new model is a subclass of `biotx.common.BiotModel` with its own `name` (see the docstring of
+`biotx/common.py`). Defining the class registers it, and `model: <name>` then selects it.
+
 ---
 
 ## 3. `scales`
@@ -123,7 +126,9 @@ scales: {L0: 1.0e-2, T0: 1.0, P0: 1500.0}
 | `phi` | – | no | 1 | biot3 | porosity |
 | `tortuosity` | – | no | 1 | biot3 | tortuosity: fluid inertia ρF·τ/φ |
 
-Keys a model does not use are accepted and ignored, so the same material block serves both models.
+Keys a model does not use are accepted, so the same material block serves both models. A value other
+than its default that the chosen model does not read (e.g. `rho_f: 1000` with `biot2`) gives a
+warning, `material: ['rho_f'] not used by biot2`.
 
 ```yaml
 material: {mu: 1500, lambda: 11567, alpha: 0.49, c0: 1.0e-6, K: 1.57e-11, muF: 3.5e-3,
@@ -659,6 +664,10 @@ These are reported as **errors**:
 - a `conditioning` section with an unknown key, or a `sweep` with other than one key;
 - `flux` ≠ 0 with `biot3`;
 - `grid` on a 3D mesh, or `slices` on a 2D mesh.
+
+This gives a **warning**:
+
+- a `material` parameter the model does not read, set to a value other than its default (§4).
 
 These are **not** detected, so watch for them:
 

@@ -79,7 +79,7 @@ class Manufactured:
         out = {}
         for name, value in self.fields.items():
             out[name] = value
-            if name in ("d", "w"):
+            if name in self.model.newmark:
                 out[f"{name}_t"], out[f"{name}_tt"] = self.dt(value), self.dt(value, 2)
         return out
 

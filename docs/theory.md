@@ -431,7 +431,7 @@ A transport equation $\partial_t c + \nabla\cdot(q\,c) - \mu\Delta c = f$ needs 
 
 **H(div)** is the space of vector fields with a square-integrable divergence. For piecewise polynomials, that means the normal component is continuous across facets. It is not a divergence-free condition: here $\nabla\cdot u$ is the rate at which the cells release fluid.
 
-**The reconstruction** (`biotx/flux.py`, after each step, without touching the solver) is the Raviart–Thomas field $u$, with normal traces of degree $k$ ($k = k_p$ for two-field, $k$ = deg for three-field), defined by
+**The reconstruction** (`biotx/flux.py`, after each step, without touching the solver; each model states $\hat F$, $\bar q$, $L_K$ and gained next to its residual) is the Raviart–Thomas field $u$, with normal traces of degree $k$ ($k = k_p$ for two-field, $k$ = deg for three-field), defined by
 
 $$\int_F (u\cdot n)\,\mu = \int_F \hat F\,\mu \quad \forall \mu \in \mathbb P_k(F), \qquad
 \int_K u\cdot\psi = \int_K \bar q\cdot\psi + L_K(\psi) \quad \forall \psi \in [\mathbb P_{k-1}(K)]^d .$$

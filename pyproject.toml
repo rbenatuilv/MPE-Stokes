@@ -15,3 +15,5 @@ packages = ["biotx"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["slow: convergence studies on several meshes"]
+# the test fixtures share one material between biot2 and biot3 (test_config checks the warning)
+filterwarnings = ["ignore:material.*not used by:UserWarning"]

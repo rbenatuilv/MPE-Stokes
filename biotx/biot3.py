@@ -25,7 +25,7 @@ mass_source f_p [-].
 """
 import ufl
 
-from biotx.common import BiotModel, NewmarkField, b_P, elasticity
+from biotx.common import BiotModel, b_P, elasticity
 
 
 def _is_zero(value):
@@ -33,7 +33,11 @@ def _is_zero(value):
 
 
 class ThreeField(BiotModel):
-    fields = ("d", "w", "p")
+    name = "biot3"
+    fields = {"d": "displacement", "w": "displacement", "p": "pressure"}
+    newmark = ("d", "w")
+    sources = {"body_force": "body_force", "fluid_force": "body_force", "mass_source": "none"}
+    material_keys = BiotModel.material_keys + ("rho_f", "phi", "tortuosity")
 
     def __init__(self, exp, domain=None):
         bad = [n for n, bc in exp.boundaries.items()
@@ -52,9 +56,10 @@ class ThreeField(BiotModel):
         return {"d": self.element(d.deg, vector=True), "w": self.element(d.deg, vector=True),
                 "p": self.element(self.deg_p)}
 
-    def _init_state(self):
-        self.sd = NewmarkField(self.V["d"], self.nm)
-        self.sw = NewmarkField(self.V["w"], self.nm)
+    @property
+    def sw(self):
+        """The Newmark state of the filtration displacement w."""
+        return self.nmk["w"]
 
     def b_W(self, p, w):
         """DG form of (grad p, w) = -(p, div w) + <{p}, [[w.n]]> + <p, w.n>_{flux boundary}.
@@ -71,14 +76,14 @@ class ThreeField(BiotModel):
         d, w, p, vd, vw, q = u["d"], u["w"], u["p"], v["d"], v["w"], v["p"]
         sd, sw = self.sd, self.sw
         dim = self.mesh.geometry.dim
-        pen_w = c.eta * (c.lam + 2 * c.mu) * self.k**2
+        pen_w = self.pen_elastic
 
         # solid momentum
         F = (c.rho * ufl.inner(sd.a_new(d), vd) * m.dx
              + c.rhoF * ufl.inner(sw.a_new(w), vd) * m.dx
              + elasticity(d, vd, self)
              + c.alpha * b_P(p, vd, self)
-             - ufl.inner(self.source("body_force", "body_force", (dim,)), vd) * m.dx)
+             - ufl.inner(self.source("body_force", (dim,)), vd) * m.dx)
         for ds, tr in self.bc.traction:
             F -= ufl.inner(tr, vd) * ds
 
@@ -88,7 +93,7 @@ class ThreeField(BiotModel):
               + 1 / c.kappa * ufl.inner(sw.z_new(w), vw) * m.dx
               + self.b_W(p, vw)
               + pen_w / m.hF * ufl.jump(w, n) * ufl.jump(vw, n) * m.dS
-              - ufl.inner(self.source("fluid_force", "body_force", (dim,)), vw) * m.dx)
+              - ufl.inner(self.source("fluid_force", (dim,)), vw) * m.dx)
         ds = self.bc.measure("flux")
         if ds is not None:                                    # w.n = 0, penalised
             F += pen_w / m.h * ufl.inner(w, n) * ufl.inner(vw, n) * ds
@@ -99,7 +104,7 @@ class ThreeField(BiotModel):
         F += (c.c0 * p * q * m.dx
               - c.alpha * b_P(q, d, self)
               - self.b_W(q, w)
-              - self.source("mass_source", "none") * q * m.dx)
+              - self.source("mass_source") * q * m.dx)
         for ds, gd, _ in self.bc.displacement:                # data of the Gamma_d term in b_P
             F += c.alpha * q * ufl.inner(gd, n) * ds
         return F
@@ -108,15 +113,6 @@ class ThreeField(BiotModel):
         self.sd.advance(self.u["d"])
         self.sw.advance(self.u["w"])
         return False
-
-    def _set_initial(self, v):
-        f = self.exp.scales.factor
-        for s, name in ((self.sd, "d"), (self.sw, "w")):
-            for func, key, kind in ((s.u_old, name, "displacement"), (s.z_old, name + "_t", "velocity"),
-                                    (s.a_old, name + "_tt", "acceleration")):
-                if key in v:
-                    self.interpolate(func, f[kind] * v[key])
-            self.u[name].x.array[:] = s.u_old.x.array
 
     def strong_form(self, F, C):
         """Sources of (B3)-(B5) for which the fields F (SI UFL) are an exact solution."""
@@ -136,3 +132,26 @@ class ThreeField(BiotModel):
     def flux(self):
         """Darcy flux q = w_t (non-dimensional): the Newmark velocity of w."""
         return self.sw.z_old
+
+    # -- the mass balance over one step (flux.py: the formulas are in its docstring)
+    def trace_degree(self):
+        return self.k
+
+    def numerical_flux(self, old):
+        """{Dw / dt}.n inside, (Dw / dt).n on the pressure boundaries (0 on the flux ones)."""
+        n = self.m.n
+        Dw = (self.u["w"] - old.u["w"]) / self.dt
+        return ufl.inner(ufl.avg(Dw), n("+")), [(ds, ufl.inner(Dw, n)) for ds, _ in self.bc.pressure]
+
+    def step_velocities(self, old):
+        return {"end": self.sw.z_old, "avg": (self.u["w"] - old.u["w"]) / self.dt}
+
+    def fluid_gained(self, old, q):
+        c, m, n, dt = self.c, self.m, self.m.n, self.dt
+        Dd = self.u["d"] - old.u["d"]
+        fp = self.source("mass_source")
+        G = (c.c0 / dt * (self.u["p"] - old.u["p"]) * q * m.dx - (fp - old.at_old_time(fp)) / dt * q * m.dx
+             - c.alpha / dt * b_P(q, Dd, self))
+        for ds, gd, _ in self.bc.displacement:
+            G += c.alpha / dt * q * ufl.inner(gd - old.at_old_time(gd), n) * ds
+        return G
