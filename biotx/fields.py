@@ -52,6 +52,13 @@ class FieldWriter:
                               "cell": mesh.topology.cell_name(), "gdeg": cmap.degree,
                               "gvariant": int(cmap.variant)}
         self.meta, self.data, self.t, self._dg = {}, {n: [] for n in self.names}, [], {}
+        from biotx.post import dg_space
+        for name in self.names:                  # known before any snapshot, so save() works with none
+            V = model.quantity(name)[0].function_space
+            if not V.ufl_element().discontinuous:                    # cflux (RT): its exact DG copy
+                self._dg[name] = dolfinx.fem.Function(dg_space(V))
+                V = self._dg[name].function_space
+            self.meta[name] = (V.ufl_element().degree, V.value_shape, V.dofmap.list.shape[1] * V.dofmap.bs)
 
     def __call__(self, model=None):
         m = model or self.model
@@ -59,16 +66,12 @@ class FieldWriter:
         self.t.append(m.time)
         for name in self.names:
             f, fac = m.quantity(name)
-            if not f.function_space.ufl_element().discontinuous:     # cflux (RT): its exact DG copy
-                if name not in self._dg:
-                    from biotx.post import dg_space
-                    self._dg[name] = dolfinx.fem.Function(dg_space(f.function_space))
+            if name in self._dg:
                 from biotx.post import copy_to
                 copy_to(self._dg[name], f)
                 f = self._dg[name]
             V = f.function_space
-            el, bs = V.ufl_element(), V.dofmap.bs
-            self.meta[name] = (el.degree, V.value_shape)
+            bs = V.dofmap.bs
             nloc = m.mesh.topology.index_map(m.mesh.topology.dim).size_local
             vals = f.x.array.reshape(-1, bs)[V.dofmap.list[:nloc]].reshape(nloc, -1) * fac
             parts = comm.gather(vals)
@@ -81,8 +84,8 @@ class FieldWriter:
         out = dict(self.mesh_data, snap_t=np.array(self.t), names=np.array(self.names),
                    experiment=yaml.safe_dump(self.model.exp.raw, sort_keys=False))
         for name in self.names:
-            deg, shape = self.meta[name]
-            out[name] = np.array(self.data[name])                     # (nsnap, ncells, ndofs)
+            deg, shape, width = self.meta[name]
+            out[name] = np.array(self.data[name]).reshape(-1, len(self.mesh_data["cells"]), width)  # (nsnap, ncells, ndofs)
             out[f"{name}_deg"], out[f"{name}_shape"] = deg, np.array(shape, dtype=int)
         np.savez(path, **out)
         return path

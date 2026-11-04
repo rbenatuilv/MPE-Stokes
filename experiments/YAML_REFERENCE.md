@@ -367,7 +367,7 @@ Everything about what is saved. All positions are in m. All results are in SI.
 | `dir` | `results` | output folder, **relative to the YAML file** |
 | `name` | YAML file stem | file stem: results go to `<dir>/<name>.npz` |
 | `series` | `[flux, p]` | quantities recorded at the probes **every step** |
-| `probes` | `{}` | named points: `{center: [x, y]}` (3 coordinates in 3D) |
+| `probes` | `{}` | named points: `{name: [x, y]}` (3 coordinates in 3D) |
 | `lines` | `{}` | named segments: `{name: {from: [...], to: [...], n: 101}}` (`n` defaults to 101) |
 | `grid` | none | **2D only**: n means an n×n grid of points over the mesh bounding box |
 | `slices` | `{}` | **3D only**: named planes `{name: {normal: x\|y\|z, at: value, n: 81}}` |

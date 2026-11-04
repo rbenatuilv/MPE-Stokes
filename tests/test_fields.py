@@ -48,6 +48,12 @@ def test_fields_round_trip_and_self_comparison(tmp_path):
     assert all(err["fields"][q].max() < 1e-13 for q in fl.names) and max(err["flux"].values()) == 0
 
 
+def test_fields_without_snapshots(tmp_path):
+    run(experiment(tmp_path, "none", fields=["p", "cflux"], snapshots=[]))
+    fl = biotx.load_fields(tmp_path / "none_fields.npz")
+    assert len(fl.snap_t) == 0 and fl.names == ["p", "cflux"]
+
+
 def test_comparison_of_different_runs(tmp_path):
     _, ref = run(experiment(tmp_path, "ref", fields=True))
     _, p1 = run(experiment(tmp_path, "p1", deg=1, fields=True))
