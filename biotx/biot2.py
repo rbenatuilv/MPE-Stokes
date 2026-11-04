@@ -43,12 +43,11 @@ class TwoField(BiotModel):
         self.theta_target = tc.theta
         self.theta = dolfinx.fem.Constant(self.mesh, 1.0 if tc.startup_steps > 0 else tc.theta)
 
-        # flux q = -kappa grad p, interpolated on demand into DG_{deg_p - 1}
+        # flux q = -kappa grad p, interpolated into DG_{deg_p - 1} after every step
         Vq = dolfinx.fem.functionspace(self.mesh, ("DG", max(self.deg_p - 1, 0), (self.mesh.geometry.dim,)))
         self._q = dolfinx.fem.Function(Vq, name="flux")
         self._q_expr = dolfinx.fem.Expression(-self.c.kappa * ufl.grad(self.u["p"]),
                                               Vq.element.interpolation_points)
-        self._q_step = None
 
     def darcy(self, p, q):
         """SIPG form of -div(kappa grad p) + beta p, with Nitsche p = . on the pressure
@@ -109,6 +108,7 @@ class TwoField(BiotModel):
         self.sd.advance(self.u["d"])
         self.p_old.x.array[:] = self.u["p"].x.array
         self.p_old.x.scatter_forward()
+        self._q.interpolate(self._q_expr)
         if self.step + 1 == self.exp.time.startup_steps and self.theta_target != 1.0:
             self.theta.value = self.theta_target       # end of the Rannacher start
             return True                                # the matrix depends on theta
@@ -122,7 +122,7 @@ class TwoField(BiotModel):
                 self.interpolate(func, f[kind] * v[key])
         self.u["d"].x.array[:] = self.sd.u_old.x.array
         self.u["p"].x.array[:] = self.p_old.x.array
-        self._q_step = None
+        self._q.interpolate(self._q_expr)
 
     def strong_form(self, F, C):
         """Sources of (B1)-(B2) for which the fields F (SI UFL) are an exact solution; C
@@ -140,7 +140,4 @@ class TwoField(BiotModel):
 
     def flux(self):
         """Darcy flux q = -kappa grad p_h (non-dimensional), DG_{deg_p - 1}."""
-        if self._q_step != self.step:
-            self._q.interpolate(self._q_expr)
-            self._q_step = self.step
         return self._q

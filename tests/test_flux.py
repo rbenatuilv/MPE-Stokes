@@ -129,6 +129,22 @@ def test_cflux_output(tmp_path):
     assert (tmp_path / "cf" / "cflux.bp").exists()
 
 
+def test_bflux_does_not_depend_on_probes(tmp_path):
+    """bflux is the flux of the current step whether or not something else asked for the flux."""
+    runs = {}
+    for name, out in (("none", {}), ("probed", {"probes": {"c": [0.5, 0.5]}, "series": ["flux"]})):
+        exp = from_dict({**square("biot2", 1, 1.0).raw, "output": {"dir": str(tmp_path), **out}}, name, tmp_path)
+        model = biotx.make_model(exp)
+        runs[name] = biotx.load_results(model.run(biotx.Recorder(model)).save())
+    keys = [k for k in runs["none"] if k.startswith("bflux_")]
+    assert keys and all(np.allclose(runs["none"][k], runs["probed"][k], rtol=1e-12, atol=0) for k in keys)
+    s, n = model.exp.scales, model.m.n
+    q = -model.c.kappa * ufl.grad(model.u["p"])
+    direct = dolfinx.fem.assemble_scalar(dolfinx.fem.form(ufl.inner(q, n) * model.m.ds(model.domain.names["left"])))
+    assert runs["none"]["bflux_left"][-1] == pytest.approx(direct * s.L0 / s.T0 * s.L0, rel=1e-12)
+    assert np.abs(runs["none"]["bflux_left"][1:]).min() > 0
+
+
 def test_cflux_needs_every_step():
     model = biotx.make_model(square("biot2", 1, 1.0))
     next(model.steps())

@@ -143,8 +143,6 @@ class _Norms:
 
     def __call__(self):
         comm = self.model.mesh.comm
-        for name in {n for n, _ in self.forms}:
-            self.model.quantity(name)                    # refresh a post-processed flux
         return {k: float(np.sqrt(comm.allreduce(dolfinx.fem.assemble_scalar(f), op=MPI.SUM)))
                 for k, f in self.forms.items()}
 
