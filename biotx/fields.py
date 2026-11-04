@@ -30,7 +30,7 @@ import ufl
 import yaml
 from mpi4py import MPI
 
-from biotx.util import integrate
+from biotx.util import integrate, yaml_load
 
 DEFAULT = ["d", "p", "flux"]
 
@@ -170,7 +170,7 @@ class Fields:
                 small[f"{n}_shape"] = tuple(int(v) for v in f[f"{n}_shape"])
         small = comm.bcast(small)
         self.snap_t, self.names = small["snap_t"], [str(n) for n in small["names"]]
-        self.experiment = yaml.safe_load(small["experiment"])
+        self.experiment = yaml_load(small["experiment"])
         self._meta = {n: (small[f"{n}_deg"], small[f"{n}_shape"]) for n in self.names}
 
         cell, gdim = str(small["cell"]), int(small["gdim"])

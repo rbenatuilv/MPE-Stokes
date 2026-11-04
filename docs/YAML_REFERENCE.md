@@ -57,6 +57,8 @@ Contents:
 - **Unknown keys are errors** in every section except the top level, where an extra key (e.g. a
   `description:` note) is ignored. This covers misspelled keys, sources the model does not read, and params or loads that
   would hide a built-in name (see §18).
+- **Numbers** may be written `1e-3` or `1.0e-3`: both are numbers, in the files and in `--set`. (Plain
+  PyYAML follows YAML 1.1 and would read `1e-3`, without a dot, as a string; biotx does not.)
 - **The whole YAML is stored** in every result file (`experiment` key), so a run can always be
   reproduced.
 

@@ -6,6 +6,7 @@ import pytest
 import biotx
 from biotx.biot2 import TwoField
 from biotx.config import from_dict
+from biotx.util import parse_set
 
 PULSATILE = Path(__file__).parent / "data" / "pulsatile.yaml"
 
@@ -87,3 +88,15 @@ def test_a_new_model_registers_itself():
     assert next(model.steps()) == pytest.approx(0.01)
     with pytest.raises(ValueError, match="test_renamed"):
         biotx.load(PULSATILE, {"model": "nonexistent"})
+
+
+def test_exponent_numbers_are_numbers(tmp_path):
+    """1e-3 is a number (PyYAML alone, following YAML 1.1, reads it as a string)."""
+    ov = parse_set(["geometry.h=1e-3", "convergence.h=[2E-3, 1e-3]", "time.T=5e1", "output.name=e5",
+                    "loads.f=1e-3*t", "output.dir=run_1e-3"])
+    assert ov["geometry.h"] == 1e-3 and ov["convergence.h"] == [2e-3, 1e-3] and ov["time.T"] == 50.0
+    assert ov["output.name"] == "e5" and ov["loads.f"] == "1e-3*t" and ov["output.dir"] == "run_1e-3"
+    path = tmp_path / "case.yaml"
+    path.write_text(PULSATILE.read_text().replace("h: 5.0e-4", "h: 5e-4").replace("c0: 1.0e-6", "c0: 1e-6"))
+    exp = biotx.load(path)
+    assert exp.geometry["h"] == 5e-4 and exp.material.c0 == 1e-6

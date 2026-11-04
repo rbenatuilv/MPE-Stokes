@@ -18,11 +18,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
 
-import yaml
-
 from biotx import geometry
 from biotx.expressions import FUNCTIONS, VARIABLES
 from biotx.models import REGISTRY                              # the models: fields, sources, material
+from biotx.util import yaml_load
 
 MECHANICAL = ("displacement", "traction", "normal_traction")   # one per boundary
 HYDRAULIC = ("pressure", "flux")                               # one per boundary
@@ -283,9 +282,9 @@ def read_study(path) -> dict:
     """The YAML tree of a study file. A top-level `base:` names another YAML (relative to the
     study) that the study extends with its own keys; the base's `output` is dropped."""
     path = Path(path)
-    raw = yaml.safe_load(path.read_text())
+    raw = yaml_load(path.read_text())
     if "base" in raw:
-        base = yaml.safe_load((path.parent / raw.pop("base")).read_text())
+        base = yaml_load((path.parent / raw.pop("base")).read_text())
         base.pop("output", None)                         # probes etc. are not used by studies
         raw = merge(base, raw)
     return raw
@@ -294,5 +293,5 @@ def read_study(path) -> dict:
 def load(path, overrides: dict | None = None) -> Experiment:
     """Read a YAML experiment, applying dotted-key overrides."""
     path = Path(path)
-    raw = _override(yaml.safe_load(path.read_text()), overrides or {})
+    raw = _override(yaml_load(path.read_text()), overrides or {})
     return from_dict(raw, path.stem, path.parent)
