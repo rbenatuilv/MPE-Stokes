@@ -5,9 +5,9 @@
 # and with it cond, is set by the penalty. (The penalty also enters the numerical flux that the
 # H(div) reconstruction of item 1 will use.)
 #
-#   python -m biotx.conditioning experiments/conditioning/annulus_biot2_zeta.yaml
+#   python -m biotx.conditioning verification/conditioning/annulus_biot2_zeta.yaml
 
-base: ../annulus_biot2.yaml
+base: ../../applications/brain_annulus/annulus_biot2.yaml
 
 conditioning:
   sweep: {discretization.zeta: [1.0, 3.0, 10.0, 30.0, 100.0, 1000.0]}

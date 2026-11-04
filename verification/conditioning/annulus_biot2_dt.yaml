@@ -2,9 +2,9 @@
 # against the time step, on the mesh of the experiment (h = 5e-4). dt enters the matrix through
 # Newmark (inertia / (beta dt^2), and c0 / dt in the mass equation).
 #
-#   python -m biotx.conditioning experiments/conditioning/annulus_biot2_dt.yaml
+#   python -m biotx.conditioning verification/conditioning/annulus_biot2_dt.yaml
 
-base: ../annulus_biot2.yaml
+base: ../../applications/brain_annulus/annulus_biot2.yaml
 
 conditioning:
   sweep: {time.dt: [0.04, 0.02, 0.01, 0.005, 0.0025]}

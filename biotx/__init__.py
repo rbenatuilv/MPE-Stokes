@@ -1,7 +1,7 @@
 """biotx: two- and three-field Biot experiments, described by YAML files.
 
     import biotx
-    exp = biotx.load("experiments/annulus_biot2.yaml", {"time.dt": 0.005})
+    exp = biotx.load("applications/brain_annulus/annulus_biot2.yaml", {"time.dt": 0.005})
     path = biotx.simulate(exp)             # build, run with the outputs of exp.output, save
 
     model = biotx.make_model(exp)          # or step by step: TwoField or ThreeField, from exp.model
@@ -24,7 +24,7 @@ def simulate(exp, verbose=True):
     """Run an experiment with the outputs of its `output` section and save them; returns the
     results path. What `python -m biotx.run` does, for scripts:
 
-        exp = biotx.load("experiments/annulus_biot2.yaml", {"output.fields": ["p", "cflux"]})
+        exp = biotx.load("applications/brain_annulus/annulus_biot2.yaml", {"output.fields": ["p", "cflux"]})
         path = biotx.simulate(exp)
     """
     import time

@@ -1,7 +1,7 @@
 # biotx YAML reference
 
 This file lists **every key** an experiment YAML can contain, with its meaning, units, default value and
-the model it applies to. For a gentler introduction see `README.md`.
+the model it applies to. For a gentler introduction see `applications/README.md`.
 
 Contents:
 
@@ -542,13 +542,13 @@ diameter h (`space`, `self`) or dt (`time`). Errors are in SI, computed with qua
 
 In time: 2 for Crank–Nicolson (θ = 0.5) and for Newmark; 1 for backward Euler (θ = 1).
 
-Examples are in `experiments/convergence/`.
+Examples are in `verification/convergence/` (MMS) and `applications/brain_annulus/mesh_independence/` (self).
 
 ### Python
 
 ```python
 from biotx import convergence as cv
-res = cv.run(cv.load("experiments/convergence/mms_biot2_space.yaml", {"discretization.deg": 2}))
+res = cv.run(cv.load("verification/convergence/mms_biot2_space.yaml", {"discretization.deg": 2}))
 print(res.table()); res.rates("p", "L2"); res.save()
 res = cv.run(cv.study(biotx.load("case.yaml"), study="self", levels=3))   # from an Experiment
 ```
@@ -565,7 +565,7 @@ python -m biotx.conditioning study.yaml [--set KEY=VALUE]
 ```
 
 ```yaml
-base: ../annulus_biot2.yaml                        # the experiment (see `base:` in §15)
+base: ../../applications/brain_annulus/annulus_biot2.yaml   # the experiment (see `base:` in §15)
 conditioning:
   sweep: {geometry.h: [4.0e-3, 2.0e-3, 1.0e-3]}    # exactly ONE dotted key and its values
   scaling: [raw, jacobi, schur]
@@ -614,7 +614,7 @@ c = cn.condition(biotx.make_model(exp), "jacobi")         # .cond, .smax, .smin,
 res = cn.run(cn.study(exp, sweep={"time.dt": [0.02, 0.01]})); print(res.table()); res.save()
 ```
 
-Examples are in `experiments/conditioning/`.
+Examples are in `verification/conditioning/`.
 
 ---
 

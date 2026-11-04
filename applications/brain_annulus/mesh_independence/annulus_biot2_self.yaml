@@ -6,7 +6,7 @@
 # limit the orders to about 2 pi / angle (L2) and pi / angle (H1). With h = 5e-4 the cavity has
 # about 38 edges: L2 order <= 1.9, H1 <= 0.95, whatever the degree.
 #
-#   python -m biotx.convergence experiments/convergence/annulus_biot2_self.yaml
+#   python -m biotx.convergence applications/brain_annulus/mesh_independence/annulus_biot2_self.yaml
 
 base: ../annulus_biot2.yaml                  # the experiment, with these keys changed:
 

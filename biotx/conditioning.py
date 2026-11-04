@@ -1,11 +1,11 @@
 """Condition number of the system matrix, cond_2(A) = s_max / s_min, and how it changes with
 one parameter of the experiment.
 
-    python -m biotx.conditioning experiments/conditioning/annulus_biot2_h.yaml [--set k=v]
+    python -m biotx.conditioning verification/conditioning/annulus_biot2_h.yaml [--set k=v]
 
 A study is an experiment YAML (usually a `base:` one) with a `conditioning:` section:
 
-    base: ../annulus_biot2.yaml
+    base: ../../applications/brain_annulus/annulus_biot2.yaml
     conditioning:
       sweep: {geometry.h: [4.0e-3, 2.0e-3, 1.0e-3]}   # ONE dotted key of the YAML and its values
       scaling: [raw, jacobi, schur]   # raw: A;  jacobi: |D|^-1/2 A |D|^-1/2, D = diag(A);

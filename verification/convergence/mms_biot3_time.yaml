@@ -2,7 +2,7 @@
 # The exact solution lies in P2/P2/P1 in space, so only the Newmark error is measured.
 # Expected order 2.
 #
-#   python -m biotx.convergence experiments/convergence/mms_biot3_time.yaml
+#   python -m biotx.convergence verification/convergence/mms_biot3_time.yaml
 
 model: biot3
 

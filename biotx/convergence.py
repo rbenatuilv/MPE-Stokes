@@ -1,6 +1,6 @@
 """Convergence studies: errors and observed orders under refinement in space or in time.
 
-    python -m biotx.convergence experiments/convergence/mms_biot2_space.yaml [--set k=v]
+    python -m biotx.convergence verification/convergence/mms_biot2_space.yaml [--set k=v]
 
 A study is an experiment YAML with a `convergence:` section. Three kinds:
 
@@ -31,7 +31,7 @@ levels is log(e_i / e_{i+1}) / log(s_i / s_{i+1}), s = h (space, self) or dt (ti
 the meshes are nested), and its order equals the order of the true error.
 
     from biotx import convergence as cv
-    res = cv.run(cv.load("experiments/convergence/mms_biot2_space.yaml"))
+    res = cv.run(cv.load("verification/convergence/mms_biot2_space.yaml"))
     print(res.table()); res.rates("p", "L2"); res.save()
 """
 from dataclasses import dataclass

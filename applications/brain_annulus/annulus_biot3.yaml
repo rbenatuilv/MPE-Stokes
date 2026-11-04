@@ -1,4 +1,5 @@
-# Two-field Biot (d, p) on an annulus with an off-centre hole.
+# Three-field Biot (d, w, p) on an annulus with an off-centre hole: the same problem as annulus_biot2.yaml,
+# with fluid inertia and the Darcy flux q = w_t as an unknown.
 # A fluid-filled cavity (radius 2.5 mm, centred at x = 3 mm) inside a poroelastic disc (radius 1 cm),
 # so the tissue is thick on the left (10.5 mm, x < 0.5 mm) and thin on the right (4.5 mm, x > 5.5 mm).
 # The cavity pressure pc(t) pulses once per second, pushing on both the pore fluid and the solid;
@@ -7,13 +8,13 @@
 # This file is the PROBLEM only: it has no `output` section. A run adds what it wants to record,
 # from a script or from the command line, e.g.
 #
-#   exp = biotx.load("experiments/annulus_biot2.yaml", {"output.fields": ["p", "cflux"]})
+#   exp = biotx.load("applications/brain_annulus/annulus_biot3.yaml", {"output.fields": ["p", "cflux"]})
 #   biotx.simulate(exp)
-#   python -m biotx.run experiments/annulus_biot2.yaml --set 'output.fields=[p, cflux]'
+#   python -m biotx.run applications/brain_annulus/annulus_biot3.yaml --set 'output.fields=[p, cflux]'
 #
 # Everything is in SI. The scales only set the non-dimensional problem that is solved.
 
-model: biot2
+model: biot3
 
 scales: {L0: 1.0e-2, T0: 1.0, P0: 1500.0}           # m, s, Pa
 
@@ -25,6 +26,9 @@ material:                                            # brain tissue
   K: 1.57e-11         # m^2
   muF: 3.5e-3         # Pa s
   rho: 1000.0         # kg/m^3
+  rho_f: 1000.0       # kg/m^3, pore fluid
+  phi: 0.2            # porosity
+  tortuosity: 1.6
 
 geometry:
   shape: annulus
@@ -41,9 +45,9 @@ loads:
   pc: "A * (1 - cos(2*pi*f*t)) / 2"                  # starts from rest, peak A at t = 0.5 s
 
 boundaries:
-  cavity: {pressure: pc, normal_traction: -pc}       # cavity fluid pushes on fluid and solid
+  cavity: {pressure: pc, normal_traction: -pc}       # pressure: natural for w in biot3
   wall:   {pressure: 0,  displacement: [0, 0]}       # drained, fixed
 
-discretization: {deg: 2}                             # P2/P2, penalties eta = zeta = 10
+discretization: {deg: 2}                             # P2/P2/P1 (deg_p = deg - 1)
 
-time: {T: 3.0, dt: 0.01, theta: 0.5}                 # Crank-Nicolson for the pressure
+time: {T: 3.0, dt: 0.01}                             # Newmark for d and w; no theta in biot3

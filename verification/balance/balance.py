@@ -1,6 +1,6 @@
 """Fake fluid of a velocity field: cell-by-cell fluid bookkeeping (item 1, Step 1).
 
-    python balance.py ../annulus_biot2.yaml [--set key=value] [--name NAME]   # -> results/<name>.npz
+    python balance.py ../../applications/brain_annulus/annulus_biot2.yaml [--set key=value] [--name NAME]   # -> results/<name>.npz
 
 The idea. In every cell K, over every time step, the fluid the cell gained must equal what came in
 through its walls minus what went out. Per unit time:
@@ -25,8 +25,8 @@ Velocities tested (what a transport equation would receive):
 The fluid moved during a step is the step average times dt, so `avg` is right in time; `end` adds an
 error in time. Both are the raw field in space: on a wall, the value from each side differs.
 
-Where the terms come from: biotx.flux (numerical_flux, fluid_gained, raw_velocities; the formulas are
-in its docstring). Each model's fluid mass equation holds for every pressure test function; the
+Where the terms come from: biotx.flux.CellBalance (from each model's numerical_flux, fluid_gained and
+step_velocities; the formulas are in the docstring of biotx.flux). Each model's fluid mass equation holds for every pressure test function; the
 pressures are discontinuous, so "1 on cell K, 0 elsewhere" is one of them, and testing with it gives
 the cell's books exactly. The script checks gained + wall flow (solver) = 0 at every step.
 
@@ -42,9 +42,7 @@ throughput_K = int_{dK} |Fhat|, the fluid flowing through K.
 import argparse
 from pathlib import Path
 
-import dolfinx
 import numpy as np
-import ufl
 import yaml
 
 import biotx
@@ -56,55 +54,10 @@ VELOCITIES = ("end", "avg", "rec")
 TERMS = ("gained", "wall_solver", "wall_end", "wall_avg", "wall_rec", "throughput")
 
 
-def _assemble(form, nloc):
-    vec = dolfinx.fem.assemble_vector(form)
-    vec.scatter_reverse(dolfinx.la.InsertMode.add)
-    return vec.array[:nloc].copy()
-
-
-class CellBooks:
-    """The bookkeeping terms of every cell, for one model, as DG0 vectors (one entry per cell). The
-    solver's wall flow, the fluid gained and the raw velocities come from biotx.flux, which also
-    builds the reconstructed velocity; all share one copy of the state at t^n."""
-
-    def __init__(self, model):
-        self.m = m = model
-        self.rec = flux.Reconstruction(m)
-        self.old_ = old = self.rec.old
-        self.v = v = ufl.TestFunction(dolfinx.fem.functionspace(m.mesh, ("DG", 0)))
-        self.nloc = m.mesh.topology.index_map(m.mesh.topology.dim).size_local
-        wall_in, wall_bnd = flux.numerical_flux(m, old)
-        velocities = {**flux.raw_velocities(m, old), "rec": self.rec.u}
-        dS, n = m.m.dS, m.m.n
-        out = lambda q: (ufl.inner(q("+"), n("+")) * v("+") + ufl.inner(q("-"), n("-")) * v("-")) * dS \
-            + ufl.inner(q, n) * v * m.m.ds                   # q.n out of each cell, from inside it
-        forms = {"gained": flux.fluid_gained(m, old, v),
-                 "wall_solver": wall_in * ufl.jump(v) * dS + sum(b * v * ds for ds, b in wall_bnd),
-                 "throughput": abs(wall_in) * (v("+") + v("-")) * dS + sum(abs(b) * v * ds for ds, b in wall_bnd),
-                 **{f"wall_{k}": out(q) for k, q in velocities.items()}}
-        self.forms = {k: dolfinx.fem.form(f) for k, f in forms.items()}
-        self.volume = _assemble(dolfinx.fem.form(v * m.m.dx), self.nloc)
-        self.jumps = {k: (dolfinx.fem.form(ufl.jump(q, n) ** 2 * dS),
-                          dolfinx.fem.form(ufl.inner(ufl.avg(q), n("+")) ** 2 * dS)) for k, q in velocities.items()}
-
-    def terms(self):
-        """The per-cell terms of the step just taken (non-dimensional)."""
-        self.rec.compute()
-        return {k: _assemble(f, self.nloc) for k, f in self.forms.items()}
-
-    def jump(self, k):
-        num, den = (dolfinx.fem.assemble_scalar(f) for f in self.jumps[k])
-        return float(np.sqrt(num / den)) if den > 0 else 0.0
-
-    def next_step(self):
-        """The state just computed becomes the old state of the next step."""
-        self.old_.advance()
-
-
 def run(path, overrides=None, name=None, period=1.0):
     exp = biotx.load(path, overrides or {})                  # no Recorder: the YAML's output is not used
     model = biotx.make_model(exp)
-    books = CellBooks(model)
+    books = flux.CellBalance(model)
     s, dim = exp.scales, model.mesh.geometry.dim
     flow_si = s.L0**dim / s.T0                               # a flow through a cell: volume per time
     volume = books.volume * s.L0**dim
@@ -137,7 +90,7 @@ def run(path, overrides=None, name=None, period=1.0):
             nperiod += 1
             for k in TERMS:
                 period_sum[k] = period_sum[k] + b[k]
-        books.next_step()
+        books.advance()
 
     mesh = model.mesh
     out = {**{k: np.array(v) for k, v in per_step.items()},

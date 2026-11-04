@@ -3,7 +3,7 @@
 # error: everything measured is the error of Newmark + theta. Expected order 2 with theta = 0.5
 # (Crank-Nicolson), 1 with theta = 1 (backward Euler: --set time.theta=1).
 #
-#   python -m biotx.convergence experiments/convergence/mms_biot2_time.yaml
+#   python -m biotx.convergence verification/convergence/mms_biot2_time.yaml
 
 model: biot2
 

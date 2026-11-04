@@ -5,14 +5,15 @@ mass-conservative (H(div)) velocity for transport.
 
 ```bash
 conda activate biotx && pip install -e .                       # once, from the repo root
-python -m biotx.run experiments/annulus_biot2.yaml --set 'output.fields=[p, cflux]'
+python -m biotx.run applications/brain_annulus/annulus_biot2.yaml --set 'output.fields=[p, cflux]'
 python -m pytest                                                # tests (about 1 minute)
 ```
 
 | where | what |
 |---|---|
-| `experiments/README.md` | how to write and run experiments; the studies |
-| `experiments/YAML_REFERENCE.md` | every YAML key |
+| `applications/README.md` | how to write and run experiments; the applications (brain annulus, transport, 3D) |
+| `verification/README.md` | the studies of the method: convergence, conditioning, fluid balance |
+| `docs/YAML_REFERENCE.md` | every YAML key |
 | `docs/theory.md` | the models, the discretization, verification, conditioning, the H(div) velocity |
 | `biotx/biot2.py`, `biot3.py`, `models.py` | the two models, each explained at the top; the registry (`make_model`) |
 | `biotx/common.py` | shared DG forms, Newmark, boundary conditions, solver, time loop; what a model provides |

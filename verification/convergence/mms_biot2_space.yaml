@@ -2,8 +2,8 @@
 # Every boundary condition kind is used; all data come from the exact solution. Expected
 # orders for P_k/P_k: k+1 (L2) and k (H1) for d and p, k for the flux in L2.
 #
-#   python -m biotx.convergence experiments/convergence/mms_biot2_space.yaml
-#   python -m biotx.convergence experiments/convergence/mms_biot2_space.yaml --set discretization.deg=2
+#   python -m biotx.convergence verification/convergence/mms_biot2_space.yaml
+#   python -m biotx.convergence verification/convergence/mms_biot2_space.yaml --set discretization.deg=2
 
 # The exact solution vanishes with its time derivative at t0 (factor sin(t)**2): the run then
 # starts from an exactly representable state (zero). A nonzero initial state is only

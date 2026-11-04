@@ -1,8 +1,8 @@
 """Run one experiment from the command line.
 
-    python -m biotx.run experiments/annulus_biot2.yaml
-    python -m biotx.run experiments/annulus_biot2.yaml --set discretization.deg=1 --set time.dt=0.005
-    python -m biotx.run experiments/annulus_biot2.yaml --set geometry.h=0.00025 --name annulus_ref
+    python -m biotx.run applications/brain_annulus/annulus_biot2.yaml
+    python -m biotx.run applications/brain_annulus/annulus_biot2.yaml --set discretization.deg=1 --set time.dt=0.005
+    python -m biotx.run applications/brain_annulus/annulus_biot2.yaml --set geometry.h=0.00025 --name annulus_ref
 
 --set takes dotted keys of the YAML tree; values are parsed as YAML (numbers, lists, strings).
 """

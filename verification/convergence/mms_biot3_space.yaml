@@ -2,7 +2,7 @@
 # biot3 supports only zero flux, so every hydraulic condition is a pressure. Expected orders
 # for P2/P2/P1: 3 (L2) and 2 (H1) for d and w, 2 (L2) and 1 (H1) for p, 3 for the flux.
 #
-#   python -m biotx.convergence experiments/convergence/mms_biot3_space.yaml
+#   python -m biotx.convergence verification/convergence/mms_biot3_space.yaml
 
 # The exact solution vanishes with its time derivative at t0 (factor sin(t)**2): the run then
 # starts from an exactly representable state (zero). A nonzero initial state is only

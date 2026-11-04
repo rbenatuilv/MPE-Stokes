@@ -410,7 +410,7 @@ bounds how much relative perturbations of $b$ (round-off, data) can grow in $x$.
 - **Raw and Jacobi-scaled.** $\mathrm{cond}_2$ depends on the units of each block: the two models have different unknowns, and the brain coefficients differ by orders of magnitude ($\kappa^* \approx 7\cdot10^{-5}$, $c_0^* = 1.5\cdot10^{-3}$). Besides the raw $A$, the study therefore reports $\tilde A = |D|^{-1/2} A\, |D|^{-1/2}$ with $D = \mathrm{diag}(A)$. That symmetric diagonal scaling removes most of the effect of units. What remains reflects the structure of the problem: mesh, time step, coupling.
 - **Expected growth in $h$.** For SIPG forms, $\mathrm{cond}_2 \sim h^{-2}$. On unstructured meshes the growth is measured against the effective size $h_{\mathrm{eff}} = (|\Omega|/N_{\mathrm{cells}})^{1/d}$, which follows the refinement better than the largest cell diameter.
 - **Schur-scaled.** In the three-field model the pressure diagonal is only $c_0 M_p$, and the pressure is controlled mainly through its coupling to $w$, a saddle-point structure. Eliminating $w$ gives the Schur complement $S = C + B A_{ww}^{-1} B^T \approx c_0 M_p + \kappa\Delta t\,(-\Delta_h)$ (up to the Newmark factor $\beta/\gamma$). Jacobi scaling uses $c_0$ alone, so it under-scales $p$: the scaled $w$–$p$ coupling grows like $h^{-1}\sqrt{\kappa\Delta t/c_0}$, and $\mathrm{cond}_2(\tilde A) \sim h^{-3}$. The `schur` scaling divides each pressure unknown instead by $s_{ii} = |a_{ii}| + \sum_{j\notin p} |a_{ij} a_{ji}|/|a_{jj}|$, the diagonal of $S$ with $A_{ww}$ replaced by its diagonal, which bounds the scaled coupling by 1. It is the diagonal analogue of the block preconditioner $\mathrm{diag}(A_{dd}, A_{ww}, S)$, and the fair basis for comparing the two models. In the two-field model it coincides with Jacobi to three digits, because the pressure diagonal already holds the Darcy jump penalty.
-- **Measured** (annulus, brain parameters, P2, $h_{\mathrm{eff}}$ = 0.32 mm, `experiments/conditioning/conditioning.ipynb`): two-field $\sim h^{-2}$ for every scaling, nearly independent of $\Delta t$. Three-field raw 30–100 times larger; Jacobi $\sim h^{-3}$; Schur $\sim h^{-2}$ and 0.17–0.55 times the two-field value.
+- **Measured** (annulus, brain parameters, P2, $h_{\mathrm{eff}}$ = 0.32 mm, `verification/conditioning/conditioning.ipynb`): two-field $\sim h^{-2}$ for every scaling, nearly independent of $\Delta t$. Three-field raw 30–100 times larger; Jacobi $\sim h^{-3}$; Schur $\sim h^{-2}$ and 0.17–0.55 times the two-field value.
 - **Which unknowns.** The right singular vector of $\sigma_{\min}$ shows which fields make $A$ nearly singular: the share of its squared norm on the dofs of $d$, $w$ and $p$.
 - **Units and the Darcy penalty.** All the forms are invariant under the non-dimensionalization of Section 5, except the Darcy penalty of the two-field model. Its scale $\tilde\kappa = \max(\kappa, 1)$ is taken in the units of the solve, so solving in SI changes the discrete problem, not only its units. With the brain parameters, $\tilde\kappa = 1$ in both cases, which is about $1.5\cdot10^4$ times the consistent value $\kappa^*$ in the scaled problem and about $2\cdot10^8$ times $\kappa$ in SI.
 
@@ -427,7 +427,7 @@ A transport equation $\partial_t c + \nabla\cdot(q\,c) - \mu\Delta c = f$ needs 
 - **The raw velocities are not.** $-\kappa\nabla p_h$ and $\dot w_h$ are cellwise fields whose normal components differ on the two sides of a facet.
   - On the brain annulus, $-\kappa\nabla p_h$ leaves about 0.3 % of the throughput unbalanced, and up to 20 % in the worst cells.
   - $(w^{n+1} - w^n)/\Delta t$ leaves $4\cdot10^{-6}$; the end-of-step $\dot w^{n+1}$ adds a time error about 1000 times larger.
-  - See `experiments/balance/`.
+  - See `verification/balance/`.
 
 **H(div)** is the space of vector fields with a square-integrable divergence. For piecewise polynomials, that means the normal component is continuous across facets. It is not a divergence-free condition: here $\nabla\cdot u$ is the rate at which the cells release fluid.
 
@@ -449,7 +449,7 @@ that is, the divergence is the solver's fluid balance against every pressure tes
 - Both are constant, so they are factorised once, and each step costs two right-hand sides.
 - Serial only for now.
 
-**Verified** (`tests/test_flux.py`, `experiments/balance/`):
+**Verified** (`tests/test_flux.py`, `verification/balance/`):
 - The facet flows equal $\hat F$ and the normal jumps vanish, to round-off.
 - The divergence identity holds to round-off.
 - The reconstruction converges at the order of the raw flux, $k_p$ for two-field and deg + 1 for three-field, with nearly the same error.

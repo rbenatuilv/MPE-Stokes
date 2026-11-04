@@ -3,7 +3,7 @@ velocity `cflux` (and the raw `flux`, for comparison) at every step of the last 
 
     python run_biot.py      # -> results/annulus_biot{2,3}.npz and results/annulus_biot{2,3}_fields.npz
 
-The problem is experiments/annulus_biot{2,3}.yaml; only what is recorded is set here. The run starts
+The problem is applications/brain_annulus/annulus_biot{2,3}.yaml; only what is recorded is set here. The run starts
 from rest and is periodic after two cycles, so the last period, t in [2, 3] s, is the periodic flow.
 """
 from pathlib import Path

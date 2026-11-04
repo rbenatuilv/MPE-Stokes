@@ -56,6 +56,22 @@ def test_conservative(model, deg, theta):
         old.advance()
 
 
+@pytest.mark.parametrize("model, deg", [("biot2", 1), ("biot3", 2)])
+def test_cell_balance(model, deg):
+    """Every cell's books close with the solver's wall flow and with the reconstructed velocity,
+    not with the raw one."""
+    m = biotx.make_model(square(model, deg, 1.0))
+    books = flux.CellBalance(m)
+    for _ in m.steps():
+        b = books.terms()
+        tp = b["throughput"].max()
+        assert np.abs(b["gained"] + b["wall_solver"]).max() < 1e-12 * tp
+        assert np.abs(b["wall_rec"] - b["wall_solver"]).max() < 1e-12 * tp
+        assert np.abs(b["wall_end"] - b["wall_solver"]).max() > 1e-6 * tp
+        assert books.jump("rec") < 1e-10 < books.jump("end")
+        books.advance()
+
+
 def _final_error(model, deg, n, dt, T=0.05, theta=0.5):
     """L2 error at T of the reconstructed flux against the exact step-consistent flux."""
     fields = ("d", "p") if model == "biot2" else ("d", "w", "p")

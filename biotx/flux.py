@@ -6,10 +6,13 @@ flow through every facet is the solver's own.
     for t in model.steps():
         u = rec.step()          # Raviart-Thomas Function (non-dimensional), for the step just taken
 
+CellBalance(model) (end of file) gives the fluid books of every cell with each velocity: how much fluid
+a raw velocity invents, and that the reconstructed one does not (verification/balance).
+
 Why. The solver conserves fluid cell by cell with its numerical flux Fhat, a single value on each
 facet. The raw velocity (biot2: -kappa grad p_h; biot3: w_t) is a field on the cells: on a facet the two
 neighbouring cells see different normal flows, and a transport equation fed with it sees fluid created
-or destroyed (experiments/balance). H(div) is the space of fields whose divergence is square
+or destroyed (verification/balance). H(div) is the space of fields whose divergence is square
 integrable; for piecewise polynomials it means that the normal component is continuous across facets.
 (It does not mean divergence-free: div u is the rate at which the cells release fluid.) Its standard
 finite element is Raviart-Thomas, whose unknowns are the normal flows on the facets and moments inside
@@ -188,3 +191,62 @@ class Reconstruction:
         x[b_idx] = self.ub.getArray(readonly=True)
         self.u.x.scatter_forward()
         return self.u
+
+
+class CellBalance:
+    """The fluid books of every cell over each step, as DG0 vectors (one entry per owned cell,
+    non-dimensional). Over a step, per unit time, cell K gains what comes in through its walls:
+
+        gained_K + wall_solver_K = 0           exactly, with the solver's wall flow (numerical_flux)
+
+    A velocity field q has wall flows wall_q_K = int_{dK} q.n of its own; fake_K = wall_q_K -
+    wall_solver_K is fluid q invents (> 0: it takes out fluid that is not there). terms() gives
+        gained, wall_solver, wall_end, wall_avg, wall_rec, throughput
+    for the raw velocities of the step (model.step_velocities: end of step and step average) and
+    the reconstructed one (rec); throughput_K = int_{dK} |Fhat|. jump(k) is ||[[q.n]]|| / ||{q}.n||
+    over the interior facets. All share the reconstruction's copy of the state at t^n:
+
+        books = CellBalance(model)
+        for t in model.steps():
+            b = books.terms()
+            books.advance()
+    """
+
+    def __init__(self, model):
+        self.m = m = model
+        self.rec = Reconstruction(m)
+        self.old = old = self.rec.old
+        v = ufl.TestFunction(dolfinx.fem.functionspace(m.mesh, ("DG", 0)))
+        self.nloc = m.mesh.topology.index_map(m.mesh.topology.dim).size_local
+        wall_in, wall_bnd = m.numerical_flux(old)
+        self.velocities = {**m.step_velocities(old), "rec": self.rec.u}
+        dS, n = m.m.dS, m.m.n
+        out = lambda q: (ufl.inner(q("+"), n("+")) * v("+") + ufl.inner(q("-"), n("-")) * v("-")) * dS \
+            + ufl.inner(q, n) * v * m.m.ds                   # q.n out of each cell, from inside it
+        forms = {"gained": m.fluid_gained(old, v),
+                 "wall_solver": wall_in * ufl.jump(v) * dS + sum(b * v * ds for ds, b in wall_bnd),
+                 "throughput": abs(wall_in) * (v("+") + v("-")) * dS + sum(abs(b) * v * ds for ds, b in wall_bnd),
+                 **{f"wall_{k}": out(q) for k, q in self.velocities.items()}}
+        self.forms = {k: dolfinx.fem.form(f) for k, f in forms.items()}
+        self.volume = self._assemble(dolfinx.fem.form(v * m.m.dx))
+        self.jumps = {k: (dolfinx.fem.form(ufl.jump(q, n) ** 2 * dS),
+                          dolfinx.fem.form(ufl.inner(ufl.avg(q), n("+")) ** 2 * dS))
+                      for k, q in self.velocities.items()}
+
+    def _assemble(self, form):
+        vec = dolfinx.fem.assemble_vector(form)
+        vec.scatter_reverse(dolfinx.la.InsertMode.add)
+        return vec.array[:self.nloc].copy()
+
+    def terms(self) -> dict:
+        """The per-cell terms of the step just taken (computes the reconstruction, does not advance)."""
+        self.rec.compute()
+        return {k: self._assemble(f) for k, f in self.forms.items()}
+
+    def jump(self, k) -> float:
+        num, den = (dolfinx.fem.assemble_scalar(f) for f in self.jumps[k])
+        return float(np.sqrt(num / den)) if den > 0 else 0.0
+
+    def advance(self):
+        """The state just computed becomes the old state of the next step."""
+        self.old.advance()

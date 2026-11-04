@@ -4,9 +4,9 @@
 # Prediction for biot3 (theory section 10): Jacobi-scaled cond ~ sqrt(K) (the w-p coupling after
 # diagonal scaling), Schur-scaled cond roughly independent of K.
 #
-#   python -m biotx.conditioning experiments/conditioning/annulus_biot3_K.yaml
+#   python -m biotx.conditioning verification/conditioning/annulus_biot3_K.yaml
 
-base: ../annulus_biot3.yaml
+base: ../../applications/brain_annulus/annulus_biot3.yaml
 
 conditioning:
   sweep: {material.K: [1.57e-9, 1.57e-10, 1.57e-11, 1.57e-12, 1.57e-13]}
